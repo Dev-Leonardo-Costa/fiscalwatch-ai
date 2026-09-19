@@ -5,6 +5,8 @@ from app.collectors.receita_collector import parse_news_publication
 from app.collectors.receita_collector import get_news_publications
 from app.service.publication_service import filter_recent_publications
 from app.collectors.cgibs_collector import fetch_cgibs_page
+from app.collectors.nfe_collector import fetch_nfe_portal_page
+
 
 
 from app.collectors.svrs_collector import (
@@ -72,6 +74,13 @@ from app.collectors.imprensa_nacional_collector import (
     extract_dou_search_params,
     parse_dou_search_results,
     parse_dou_publications
+)
+
+
+from app.collectors.nfe_collector import (
+    fetch_nfe_notas_tecnicas_page,
+    parse_nfe_notas_tecnicas_links,
+    parse_nfe_publications
 )
 
 
@@ -847,6 +856,69 @@ def test_dou_recent(hours: int = 72):
     return {
         "source": "IMPRENSA_NACIONAL_DOU",
         "keyword": "IBS",
+        "hours": hours,
+        "total": len(recent_publications),
+        "publications": recent_publications
+    }    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+@app.get("/test/nfe")
+def test_nfe():
+
+    html = fetch_nfe_portal_page()
+
+    return {
+        "source": "PORTAL_NFE",
+        "status": "SUCCESS",
+        "html_size": len(html),
+        "preview": html
+    }
+
+
+@app.get("/test/nfe/notas-tecnicas")
+def test_nfe_notas_tecnicas():
+
+    html = fetch_nfe_notas_tecnicas_page()
+
+    notas = parse_nfe_notas_tecnicas_links(html)
+
+    publications = parse_nfe_publications(notas)
+
+    return {
+        "source": "PORTAL_NFE",
+        "total": len(publications),
+        "publications": publications[:10]
+    }
+
+
+@app.get("/test/nfe/recent")
+def test_nfe_recent(hours: int = 72):
+
+    html = fetch_nfe_notas_tecnicas_page()
+
+    notas = parse_nfe_notas_tecnicas_links(html)
+
+    publications = parse_nfe_publications(notas)
+
+    recent_publications = filter_recent_publications(
+        publications,
+        hours
+    )
+
+    return {
+        "source": "PORTAL_NFE",
         "hours": hours,
         "total": len(recent_publications),
         "publications": recent_publications
