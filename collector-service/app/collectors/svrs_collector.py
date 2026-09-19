@@ -2,6 +2,7 @@ import re
 import httpx
 import re
 
+from pathlib import Path
 from bs4 import BeautifulSoup
 from urllib.parse import urlencode
 from datetime import datetime
@@ -153,7 +154,7 @@ def get_publications() -> list[Publication]:
         published_at = datetime.strptime(
             date_text,
             "%d/%m/%Y"
-        ).date()
+        )
 
         description_element = article.find("p")
 
@@ -207,28 +208,6 @@ def classify_document_type(title: str) -> str:
         return "NOTA_TECNICA"
 
     return "OUTRO"  
-
-
-def filter_recent_publications(
-    publications: list[Publication],
-    hours: int = 72
-) -> list[Publication]:
-
-    limit_date = (
-        datetime.now() - timedelta(hours=hours)
-    ).date()
-
-    recent_publications = []
-
-    for publication in publications:
-        if publication.published_at >= limit_date:
-            recent_publications.append(publication)
-
-    return recent_publications  
-
-
-from pathlib import Path
-import httpx
 
 
 def download_document(
