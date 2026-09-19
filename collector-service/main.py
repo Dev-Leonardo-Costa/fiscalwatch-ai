@@ -21,11 +21,13 @@ from app.collectors.svrs_collector import (
 )
 
 
-from app.collectors.receita_collector import (
-    fetch_receita_page,
-    parse_receita_links,
-    filter_relevant_links,
-    filter_news_links
+from app.collectors.imprensa_nacional_collector import (
+    fetch_imprensa_nacional_page,
+    parse_imprensa_links,
+    fetch_dou_page,
+    fetch_dou_database_page,
+    parse_dou_database_content,
+    fetch_dou_section_page,
 )
 
 
@@ -47,8 +49,31 @@ from app.collectors.cgibs_collector import (
     parse_cgibs_document_metadata,
     parse_cgibs_document_publication,
     get_cgibs_technical_publications
-    
 )
+
+from app.collectors.receita_collector import (
+    fetch_receita_page,
+    parse_receita_links,
+    filter_relevant_links,
+    filter_news_links,
+)
+
+
+from app.collectors.imprensa_nacional_collector import (
+    fetch_imprensa_nacional_page,
+    parse_imprensa_links,
+    fetch_dou_page,
+    fetch_dou_database_page,
+    parse_dou_database_content,
+    fetch_dou_section_page,
+    parse_dou_section_links,
+    find_dou_api_candidates,
+    search_dou,
+    extract_dou_search_params,
+    parse_dou_search_results,
+    parse_dou_publications
+)
+
 
 app = FastAPI(
     title="FiscalWatch Collector Service",
@@ -209,19 +234,6 @@ def test_pdf_text():
     }
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
 @app.get("/test/receita")
 def test_receita():
     html = fetch_receita_page()
@@ -243,7 +255,7 @@ def test_receita_links():
         "source": "RECEITA_FEDERAL",
         "total_links": len(links),
         "links": links
-    }    
+    }
 
 
 @app.get("/test/receita/relevant-links")
@@ -260,7 +272,7 @@ def test_receita_relevant_links():
         "total_links": len(links),
         "relevant_links": len(relevant_links),
         "links": relevant_links
-    }    
+    }
 
 
 @app.get("/test/receita/news")
@@ -289,7 +301,7 @@ def test_receita_news_inspect():
         "tecnica-das-apis-de-apuracao-de-cbs"
     )
 
-    return inspect_news_page(url)  
+    return inspect_news_page(url)
 
 
 @app.get("/test/receita/publication")
@@ -314,7 +326,7 @@ def test_receita_publications():
         "source": "RECEITA_FEDERAL",
         "total": len(publications),
         "publications": publications
-    }    
+    }
 
 
 @app.get("/test/receita/recent")
@@ -333,20 +345,6 @@ def test_receita_recent(hours: int = 72):
         "total": len(recent),
         "publications": recent
     }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 @app.get("/test/cgibs")
@@ -430,7 +428,7 @@ def test_cgibs_scripts():
         "source": "CGIBS",
         "total": len(scripts),
         "scripts": scripts
-    }    
+    }
 
 
 @app.get("/test/cgibs/pagedlist-js")
@@ -441,7 +439,7 @@ def test_cgibs_pagedlist_js():
     return {
         "size": len(content),
         "content": content
-    }    
+    }
 
 
 @app.get("/test/cgibs/all-scripts")
@@ -468,7 +466,7 @@ def test_cgibs_matriz_ui_js():
         "contains_filtered_list": "filtered-list" in content,
         "contains_source_uri": "source-uri" in content,
         "content": content
-    }    
+    }
 
 
 @app.get("/test/cgibs/technical-documents/parsed")
@@ -484,7 +482,7 @@ def test_cgibs_technical_documents_parsed():
         "source": "CGIBS",
         "total": len(documents),
         "documents": documents
-    }   
+    }
 
 
 @app.get("/test/cgibs/dere")
@@ -495,7 +493,7 @@ def test_cgibs_dere():
         "declaracao-de-regimes-especificos-dere"
     )
 
-    return inspect_cgibs_document_page(url)    
+    return inspect_cgibs_document_page(url)
 
 
 @app.get("/test/cgibs/dere/files")
@@ -532,7 +530,7 @@ def test_cgibs_dere_dates():
         "total": len(dates),
         "dates": dates
     }
-     
+
 
 @app.get("/test/cgibs/dere/metadata")
 def test_cgibs_dere_metadata():
@@ -560,7 +558,7 @@ def test_cgibs_dere_metadata_parsed():
         "declaracao-de-regimes-especificos-dere"
     )
 
-    return parse_cgibs_document_metadata(url)  
+    return parse_cgibs_document_metadata(url)
 
 
 @app.get("/test/cgibs/dere/publication")
@@ -571,7 +569,7 @@ def test_cgibs_dere_publication():
         "declaracao-de-regimes-especificos-dere"
     )
 
-    return parse_cgibs_document_publication(url)             
+    return parse_cgibs_document_publication(url)
 
 
 @app.get("/test/cgibs/publications")
@@ -599,6 +597,257 @@ def test_cgibs_recent(hours: int = 72):
     return {
         "source": "CGIBS",
         "period_hours": hours,
+        "total": len(recent_publications),
+        "publications": recent_publications
+    }
+
+
+@app.get("/test/imprensa-nacional/dou")
+def test_imprensa_nacional_dou():
+
+    html = fetch_dou_page()
+
+    links = parse_imprensa_links(html)
+
+    return {
+        "source": "IMPRENSA_NACIONAL_DOU",
+        "html_size": len(html),
+        "total_links": len(links),
+        "links": links
+    }
+
+
+@app.get("/test/imprensa-nacional")
+def test_imprensa_nacional():
+
+    html = fetch_imprensa_nacional_page()
+
+    return {
+        "source": "IMPRENSA_NACIONAL",
+        "status": "SUCCESS",
+        "html_size": len(html)
+    }
+
+
+@app.get("/test/imprensa-nacional/links")
+def test_imprensa_nacional_links():
+
+    html = fetch_imprensa_nacional_page()
+
+    links = parse_imprensa_links(html)
+
+    return {
+        "source": "IMPRENSA_NACIONAL",
+        "total": len(links),
+        "links": links
+    }
+
+
+@app.get("/test/imprensa-nacional/dou")
+def test_imprensa_nacional_dou():
+
+    html = fetch_dou_page()
+
+    links = parse_imprensa_links(html)
+
+    return {
+        "source": "IMPRENSA_NACIONAL_DOU",
+        "html_size": len(html),
+        "total_links": len(links),
+        "links": links
+    }
+
+
+@app.get("/test/imprensa-nacional/dou/database")
+def test_dou_database():
+
+    html = fetch_dou_database_page()
+
+    links = parse_imprensa_links(html)
+
+    return {
+        "source": "IMPRENSA_NACIONAL_DOU_DATABASE",
+        "html_size": len(html),
+        "total_links": len(links),
+        "links": links
+    }
+
+
+@app.get("/test/imprensa-nacional/dou/database/content")
+def test_dou_database_content():
+
+    html = fetch_dou_database_page()
+
+    content = parse_dou_database_content(html)
+
+    return {
+        "source": "IMPRENSA_NACIONAL_DOU_DATABASE",
+        "content": content
+    }
+
+
+@app.get("/test/imprensa-nacional/dou/section")
+def test_dou_section():
+
+    html = fetch_dou_section_page(
+        date="19-09-2026"
+    )
+
+    return {
+        "source": "IMPRENSA_NACIONAL_DOU",
+        "section": "dou1",
+        "date": "19-09-2026",
+        "html_size": len(html)
+    } 
+
+
+@app.get("/test/imprensa-nacional/dou/section/links")
+def test_dou_section_links():
+
+    html = fetch_dou_section_page(
+        date="19-09-2026"
+    )
+
+    links = parse_dou_section_links(html)
+
+    return {
+        "source": "IMPRENSA_NACIONAL_DOU",
+        "section": "dou1",
+        "date": "19-09-2026",
+        "total_links": len(links),
+        "links": links
+    }
+
+
+@app.get("/test/imprensa-nacional/dou/api-candidates")
+def test_dou_api_candidates():
+
+    html = fetch_dou_section_page(
+        date="19-09-2026"
+    )
+
+    candidates = find_dou_api_candidates(html)
+
+    return {
+        "source": "IMPRENSA_NACIONAL_DOU",
+        "total": len(candidates),
+        "candidates": candidates
+    }
+
+
+@app.get("/test/imprensa-nacional/dou/search")
+def test_dou_search():
+
+    html = search_dou(
+        keyword="IBS",
+        section="do1"
+    )
+
+    params = extract_dou_search_params(html)
+
+    return {
+        "source": "IMPRENSA_NACIONAL_DOU",
+        "keyword": "IBS",
+        "found": params is not None,
+        "params_size": len(params) if params else 0,
+        "preview": params[:3000] if params else None
+    }
+
+
+@app.get("/test/imprensa-nacional/dou/search/params")
+def test_dou_search_params():
+
+    html = search_dou(
+        date="19-09-2026",
+        section="do1"
+    )
+
+    params = extract_dou_search_params(html)
+
+    return {
+        "source": "IMPRENSA_NACIONAL_DOU",
+        "found": params is not None,
+        "params_size": len(params) if params else 0,
+        "preview": params[:2000] if params else None
+    }    
+
+
+@app.get("/test/imprensa-nacional/dou/section/params")
+def test_dou_section_params():
+
+    html = fetch_dou_section_page(
+        date="19-09-2026",
+        section="dou1"
+    )
+
+    params = extract_dou_search_params(html)
+
+    return {
+        "source": "IMPRENSA_NACIONAL_DOU",
+        "found": params is not None,
+        "params_size": len(params) if params else 0,
+        "preview": params[:3000] if params else None
+    }  
+
+
+@app.get("/test/imprensa-nacional/dou/results")
+def test_dou_results():
+
+    html = search_dou(
+        keyword="IBS",
+        section="do1"
+    )
+
+    results = parse_dou_search_results(html)
+
+    return {
+        "source": "IMPRENSA_NACIONAL_DOU",
+        "keyword": "IBS",
+        "total": len(results),
+        "results": results
+    }     
+
+
+@app.get("/test/imprensa-nacional/dou/publications")
+def test_dou_publications():
+
+    html = search_dou(
+        keyword="IBS",
+        section="do1"
+    )
+
+    results = parse_dou_search_results(html)
+
+    publications = parse_dou_publications(results)
+
+    return {
+        "source": "IMPRENSA_NACIONAL_DOU",
+        "total": len(publications),
+        "publications": publications
+    }    
+
+
+@app.get("/test/imprensa-nacional/dou/recent")
+def test_dou_recent(hours: int = 72):
+
+    html = search_dou(
+        keyword="IBS",
+        section="do1"
+    )
+
+    results = parse_dou_search_results(html)
+
+    publications = parse_dou_publications(results)
+
+    recent_publications = filter_recent_publications(
+        publications,
+        hours
+    )
+
+    return {
+        "source": "IMPRENSA_NACIONAL_DOU",
+        "keyword": "IBS",
+        "hours": hours,
         "total": len(recent_publications),
         "publications": recent_publications
     }    
