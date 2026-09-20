@@ -16,7 +16,8 @@ from datetime import datetime
 
 from app.service.publication_service import (
     filter_recent_publications,
-    merge_publications
+    merge_publications,
+    remove_duplicate_publications
 )
 
 from app.collectors.imprensa_nacional_collector import (
@@ -932,7 +933,6 @@ def test_merge_nfe(hours: int = 72):
     )
 
     dou_results = parse_dou_search_results(dou_html)
-
     dou_publications = parse_dou_publications(dou_results)
 
     # Unificação das 5 fontes
@@ -944,13 +944,20 @@ def test_merge_nfe(hours: int = 72):
         dou_publications
     )
 
+    # Remove duplicações dentro da mesma fonte
+    unique_publications = remove_duplicate_publications(
+        publications
+    )
+
+    # Filtra pelo período informado
     recent_publications = filter_recent_publications(
-        publications,
+        unique_publications,
         hours=hours
     )
 
     return {
         "total_collected": len(publications),
+        "total_unique": len(unique_publications),
         "total_recent": len(recent_publications),
         "hours": hours,
         "sources": {
@@ -961,4 +968,39 @@ def test_merge_nfe(hours: int = 72):
             "IMPRENSA_NACIONAL_DOU": len(dou_publications)
         },
         "publications": recent_publications
+    }
+
+
+@app.get("/test/publications/deduplicate")
+def test_deduplicate_publications():
+
+    publications = [
+        Publication(
+            source="SVRS",
+            title="Nota Técnica 2026.009 v1.00",
+            document_type="NOTA_TECNICA",
+            published_at=datetime.now()
+        ),
+        Publication(
+            source="SVRS",
+            title="Nota Técnica 2026.009 v1.00",
+            document_type="NOTA_TECNICA",
+            published_at=datetime.now()
+        ),
+        Publication(
+            source="PORTAL_NFE",
+            title="Nota Técnica 2026.009 v1.00",
+            document_type="NOTA_TECNICA",
+            published_at=datetime.now()
+        )
+    ]
+
+    unique_publications = remove_duplicate_publications(
+        publications
+    )
+
+    return {
+        "before": len(publications),
+        "after": len(unique_publications),
+        "publications": unique_publications
     }

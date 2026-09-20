@@ -40,4 +40,25 @@ def merge_publications(
     for publication_list in publication_lists:
         publications.extend(publication_list)
 
-    return publications    
+    return publications
+
+
+def remove_duplicate_publications(
+    publications: list[Publication]
+) -> list[Publication]:
+
+    unique_publications = []
+    seen = set()
+
+    for publication in publications:
+
+        key = (
+            publication.source,
+            publication.title.strip().lower()
+        )
+
+        if key not in seen:
+            seen.add(key)
+            unique_publications.append(publication)
+
+    return unique_publications
