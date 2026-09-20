@@ -22,7 +22,6 @@ def fetch_imprensa_nacional_page() -> str:
     return response.text
 
 
-
 def parse_imprensa_links(html: str) -> list[dict]:
 
     soup = BeautifulSoup(html, "html.parser")
@@ -72,7 +71,7 @@ def fetch_dou_page() -> str:
 
     response.raise_for_status()
 
-    return response.text  
+    return response.text
 
 
 IMPRENSA_DOU_DATABASE_URL = (
@@ -101,7 +100,7 @@ def fetch_dou_database_page() -> str:
 
     response.raise_for_status()
 
-    return response.text    
+    return response.text
 
 
 def parse_dou_database_content(html: str) -> str:
@@ -116,7 +115,7 @@ def parse_dou_database_content(html: str) -> str:
     return main.get_text(
         " ",
         strip=True
-    )  
+    )
 
 
 def fetch_dou_section_page(
@@ -169,7 +168,7 @@ def parse_dou_section_links(html: str) -> list[dict]:
                 "href": href
             })
 
-    return links 
+    return links
 
 
 def find_dou_api_candidates(html: str) -> list[str]:
@@ -244,7 +243,7 @@ def extract_dou_search_params(html: str) -> str | None:
     if not element:
         return None
 
-    return element.get_text(strip=True)    
+    return element.get_text(strip=True)
 
 
 def parse_dou_search_results(html: str) -> list[dict]:

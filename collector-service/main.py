@@ -14,7 +14,6 @@ from app.model.publication import Publication
 from datetime import datetime
 
 
-
 from app.service.publication_service import (
     filter_recent_publications,
     merge_publications
@@ -25,7 +24,6 @@ from app.collectors.imprensa_nacional_collector import (
     parse_dou_search_results,
     parse_dou_publications
 )
-
 
 
 from app.collectors.svrs_collector import (
@@ -726,7 +724,7 @@ def test_dou_section():
         "section": "dou1",
         "date": "19-09-2026",
         "html_size": len(html)
-    } 
+    }
 
 
 @app.get("/test/imprensa-nacional/dou/section/links")
@@ -797,7 +795,7 @@ def test_dou_search_params():
         "found": params is not None,
         "params_size": len(params) if params else 0,
         "preview": params[:2000] if params else None
-    }    
+    }
 
 
 @app.get("/test/imprensa-nacional/dou/section/params")
@@ -815,7 +813,7 @@ def test_dou_section_params():
         "found": params is not None,
         "params_size": len(params) if params else 0,
         "preview": params[:3000] if params else None
-    }  
+    }
 
 
 @app.get("/test/imprensa-nacional/dou/results")
@@ -833,7 +831,7 @@ def test_dou_results():
         "keyword": "IBS",
         "total": len(results),
         "results": results
-    }     
+    }
 
 
 @app.get("/test/imprensa-nacional/dou/publications")
@@ -852,7 +850,7 @@ def test_dou_publications():
         "source": "IMPRENSA_NACIONAL_DOU",
         "total": len(publications),
         "publications": publications
-    }    
+    }
 
 
 @app.get("/test/imprensa-nacional/dou/recent")
@@ -878,19 +876,7 @@ def test_dou_recent(hours: int = 72):
         "hours": hours,
         "total": len(recent_publications),
         "publications": recent_publications
-    }    
-
-
-
-
-
-
-
-
-
-
-
-
+    }
 
 
 @app.get("/test/nfe")
@@ -923,7 +909,7 @@ def test_nfe_notas_tecnicas():
 
 
 @app.get("/test/publications/merge/nfe")
-def test_merge_nfe():
+def test_merge_nfe(hours: int = 72):
 
     # Portal NF-e
     nfe_html = fetch_nfe_notas_tecnicas_page()
@@ -958,8 +944,15 @@ def test_merge_nfe():
         dou_publications
     )
 
+    recent_publications = filter_recent_publications(
+        publications,
+        hours=hours
+    )
+
     return {
-        "total": len(publications),
+        "total_collected": len(publications),
+        "total_recent": len(recent_publications),
+        "hours": hours,
         "sources": {
             "PORTAL_NFE": len(nfe_publications),
             "RECEITA_FEDERAL": len(receita_publications),
@@ -967,5 +960,5 @@ def test_merge_nfe():
             "SVRS": len(svrs_publications),
             "IMPRENSA_NACIONAL_DOU": len(dou_publications)
         },
-        "publications": publications[:10]
+        "publications": recent_publications
     }
