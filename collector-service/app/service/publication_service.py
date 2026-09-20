@@ -29,3 +29,15 @@ def filter_recent_publications(
             recent_publications.append(publication)
 
     return recent_publications
+
+
+def merge_publications(
+    *publication_lists: list[Publication]
+) -> list[Publication]:
+
+    publications = []
+
+    for publication_list in publication_lists:
+        publications.extend(publication_list)
+
+    return publications    

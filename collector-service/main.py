@@ -1,11 +1,30 @@
 from fastapi import FastAPI
 from app.collectors.receita_collector import fetch_receita_page
 from app.collectors.receita_collector import inspect_news_page
+from app.collectors.cgibs_collector import fetch_cgibs_page
+from app.collectors.nfe_collector import fetch_nfe_portal_page
+
+from app.collectors.cgibs_collector import get_cgibs_technical_publications
 from app.collectors.receita_collector import parse_news_publication
 from app.collectors.receita_collector import get_news_publications
 from app.service.publication_service import filter_recent_publications
-from app.collectors.cgibs_collector import fetch_cgibs_page
-from app.collectors.nfe_collector import fetch_nfe_portal_page
+from app.collectors.svrs_collector import get_publications
+from app.model.publication import Publication
+
+from datetime import datetime
+
+
+
+from app.service.publication_service import (
+    filter_recent_publications,
+    merge_publications
+)
+
+from app.collectors.imprensa_nacional_collector import (
+    search_dou,
+    parse_dou_search_results,
+    parse_dou_publications
+)
 
 
 
@@ -903,23 +922,50 @@ def test_nfe_notas_tecnicas():
     }
 
 
-@app.get("/test/nfe/recent")
-def test_nfe_recent(hours: int = 72):
+@app.get("/test/publications/merge/nfe")
+def test_merge_nfe():
 
-    html = fetch_nfe_notas_tecnicas_page()
+    # Portal NF-e
+    nfe_html = fetch_nfe_notas_tecnicas_page()
+    notas = parse_nfe_notas_tecnicas_links(nfe_html)
+    nfe_publications = parse_nfe_publications(notas)
 
-    notas = parse_nfe_notas_tecnicas_links(html)
+    # Receita Federal
+    receita_publications = get_news_publications()
 
-    publications = parse_nfe_publications(notas)
+    # CGIBS
+    cgibs_publications = get_cgibs_technical_publications()
 
-    recent_publications = filter_recent_publications(
-        publications,
-        hours
+    # SVRS
+    svrs_publications = get_publications()
+
+    # Diário Oficial da União
+    dou_html = search_dou(
+        keyword="IBS",
+        section="do1"
+    )
+
+    dou_results = parse_dou_search_results(dou_html)
+
+    dou_publications = parse_dou_publications(dou_results)
+
+    # Unificação das 5 fontes
+    publications = merge_publications(
+        nfe_publications,
+        receita_publications,
+        cgibs_publications,
+        svrs_publications,
+        dou_publications
     )
 
     return {
-        "source": "PORTAL_NFE",
-        "hours": hours,
-        "total": len(recent_publications),
-        "publications": recent_publications
-    }    
+        "total": len(publications),
+        "sources": {
+            "PORTAL_NFE": len(nfe_publications),
+            "RECEITA_FEDERAL": len(receita_publications),
+            "CGIBS": len(cgibs_publications),
+            "SVRS": len(svrs_publications),
+            "IMPRENSA_NACIONAL_DOU": len(dou_publications)
+        },
+        "publications": publications[:10]
+    }
