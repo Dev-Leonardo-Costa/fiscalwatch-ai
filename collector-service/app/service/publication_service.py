@@ -98,3 +98,47 @@ def find_duplicate_publications(
             seen.add(key)
 
     return duplicates
+
+
+def is_relevant_publication(
+    publication: Publication
+) -> bool:
+
+    relevant_terms = [
+        "reforma tributária",
+        "cbs",
+        "imposto seletivo",
+        "nf-e",
+        "nfc-e",
+        "dfe",
+        "df-e",
+        "nota técnica",
+        "split payment",
+        "schema",
+        "xml",
+        "xsd",
+        "regra de validação",
+        "ato técnico conjunto",
+        "api fiscal"
+    ]
+
+    text = (
+        f"{publication.title} "
+        f"{publication.description or ''}"
+    ).lower()
+
+    return any(
+        term in text
+        for term in relevant_terms
+    )    
+
+
+def filter_relevant_publications(
+    publications: list[Publication]
+) -> list[Publication]:
+
+    return [
+        publication
+        for publication in publications
+        if is_relevant_publication(publication)
+    ]    

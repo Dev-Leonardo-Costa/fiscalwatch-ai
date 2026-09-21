@@ -18,7 +18,9 @@ from app.service.publication_service import (
     filter_recent_publications,
     merge_publications,
     remove_duplicate_publications,
-    find_duplicate_publications
+    find_duplicate_publications,
+    is_relevant_publication,
+    filter_relevant_publications
 )
 
 from app.collectors.imprensa_nacional_collector import (
@@ -960,11 +962,17 @@ def test_merge_nfe(hours: int = 72):
         hours=hours
     )
 
+    relevant_publications = filter_relevant_publications(
+        recent_publications
+    )
+
     return {
         "total_collected": len(publications),
         "total_unique": len(unique_publications),
         "total_duplicates": len(duplicates),
         "total_recent": len(recent_publications),
+        "total_relevant": len(relevant_publications),
+        "relevant_publications": relevant_publications,
         "hours": hours,
         "duplicates": duplicates,
         "sources": {
@@ -1010,4 +1018,29 @@ def test_deduplicate_publications():
         "before": len(publications),
         "after": len(unique_publications),
         "publications": unique_publications
+    }
+
+
+@app.get("/test/publications/relevance")
+def test_publication_relevance():
+
+    relevant = Publication(
+        source="TESTE",
+        title="Nota Técnica sobre IBS e CBS",
+        document_type="NOTA_TECNICA",
+        published_at=datetime.now(),
+        description="Alteração em regra de validação da NF-e."
+    )
+
+    irrelevant = Publication(
+        source="TESTE",
+        title="PAUTA DE JULGAMENTO",
+        document_type="PAUTA",
+        published_at=datetime.now(),
+        description="Reunião para julgamento de processos administrativos."
+    )
+
+    return {
+        "relevant": is_relevant_publication(relevant),
+        "irrelevant": is_relevant_publication(irrelevant)
     }
