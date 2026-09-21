@@ -10,6 +10,8 @@ from app.collectors.receita_collector import get_news_publications
 from app.service.publication_service import filter_recent_publications
 from app.collectors.svrs_collector import get_publications
 from app.model.publication import Publication
+from app.model.publication_event import PublicationEvent
+from app.model.publication import Publication
 
 from datetime import datetime
 
@@ -1044,3 +1046,24 @@ def test_publication_relevance():
         "relevant": is_relevant_publication(relevant),
         "irrelevant": is_relevant_publication(irrelevant)
     }
+
+
+@app.get("/test/publication-event")
+def test_publication_event():
+
+    publication = Publication(
+        source="PORTAL_NFE",
+        title="Nota Técnica 2026.009 v1.00",
+        document_type="NOTA_TECNICA",
+        published_at=datetime.now(),
+        description="Alteração de regra de validação de CFOP",
+        download_url="https://www.nfe.fazenda.gov.br/"
+    )
+
+    event = PublicationEvent(
+        event_type="publication.discovered",
+        occurred_at=datetime.now(),
+        publication=publication
+    )
+
+    return event
