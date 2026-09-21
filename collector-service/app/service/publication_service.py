@@ -52,13 +52,49 @@ def remove_duplicate_publications(
 
     for publication in publications:
 
-        key = (
-            publication.source,
-            publication.title.strip().lower()
-        )
+        if publication.download_url:
+            key = (
+                publication.source,
+                publication.download_url
+            )
+        else:
+            key = (
+                publication.source,
+                publication.title.strip().lower(),
+                publication.published_at
+            )
 
         if key not in seen:
             seen.add(key)
             unique_publications.append(publication)
 
     return unique_publications
+
+
+def find_duplicate_publications(
+    publications: list[Publication]
+) -> list[Publication]:
+
+    duplicates = []
+    seen = set()
+
+    for publication in publications:
+
+        if publication.download_url:
+            key = (
+                publication.source,
+                publication.download_url
+            )
+        else:
+            key = (
+                publication.source,
+                publication.title.strip().lower(),
+                publication.published_at
+            )
+
+        if key in seen:
+            duplicates.append(publication)
+        else:
+            seen.add(key)
+
+    return duplicates
