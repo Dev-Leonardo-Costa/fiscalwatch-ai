@@ -17,7 +17,8 @@ from datetime import datetime
 from app.service.publication_service import (
     filter_recent_publications,
     merge_publications,
-    remove_duplicate_publications
+    remove_duplicate_publications,
+    find_duplicate_publications
 )
 
 from app.collectors.imprensa_nacional_collector import (
@@ -944,6 +945,10 @@ def test_merge_nfe(hours: int = 72):
         dou_publications
     )
 
+    duplicates = find_duplicate_publications(
+        publications
+    )
+
     # Remove duplicações dentro da mesma fonte
     unique_publications = remove_duplicate_publications(
         publications
@@ -958,8 +963,10 @@ def test_merge_nfe(hours: int = 72):
     return {
         "total_collected": len(publications),
         "total_unique": len(unique_publications),
+        "total_duplicates": len(duplicates),
         "total_recent": len(recent_publications),
         "hours": hours,
+        "duplicates": duplicates,
         "sources": {
             "PORTAL_NFE": len(nfe_publications),
             "RECEITA_FEDERAL": len(receita_publications),
