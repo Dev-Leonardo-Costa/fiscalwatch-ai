@@ -1,0 +1,13 @@
+spring:
+  application:
+    name: fiscal-service
+
+  datasource:
+    url: jdbc:postgresql://localhost:5433/fiscalwatch
+    username: fiscalwatch
+    password: fiscalwatch
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false

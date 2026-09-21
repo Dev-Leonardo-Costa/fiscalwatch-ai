@@ -1,0 +1,15 @@
+services:
+  postgres:
+    image: postgres:17
+    container_name: fiscalwatch-postgres
+    environment:
+      POSTGRES_DB: fiscalwatch
+      POSTGRES_USER: fiscalwatch
+      POSTGRES_PASSWORD: fiscalwatch
+    ports:
+      - "5433:5432"
+    volumes:
+      - fiscalwatch_postgres_data:/var/lib/postgresql/data
+
+volumes:
+  fiscalwatch_postgres_data:
