@@ -48,25 +48,15 @@ def remove_duplicate_publications(
 ) -> list[Publication]:
 
     unique_publications = []
-    seen = set()
+    seen_external_ids = set()
 
     for publication in publications:
 
-        if publication.download_url:
-            key = (
-                publication.source,
-                publication.download_url
-            )
-        else:
-            key = (
-                publication.source,
-                publication.title.strip().lower(),
-                publication.published_at
-            )
+        if publication.external_id in seen_external_ids:
+            continue
 
-        if key not in seen:
-            seen.add(key)
-            unique_publications.append(publication)
+        seen_external_ids.add(publication.external_id)
+        unique_publications.append(publication)
 
     return unique_publications
 
@@ -76,26 +66,15 @@ def find_duplicate_publications(
 ) -> list[Publication]:
 
     duplicates = []
-    seen = set()
+    seen_external_ids = set()
 
     for publication in publications:
 
-        if publication.download_url:
-            key = (
-                publication.source,
-                publication.download_url
-            )
-        else:
-            key = (
-                publication.source,
-                publication.title.strip().lower(),
-                publication.published_at
-            )
-
-        if key in seen:
+        if publication.external_id in seen_external_ids:
             duplicates.append(publication)
-        else:
-            seen.add(key)
+            continue
+
+        seen_external_ids.add(publication.external_id)
 
     return duplicates
 
@@ -130,7 +109,7 @@ def is_relevant_publication(
     return any(
         term in text
         for term in relevant_terms
-    )    
+    )
 
 
 def filter_relevant_publications(
@@ -141,4 +120,4 @@ def filter_relevant_publications(
         publication
         for publication in publications
         if is_relevant_publication(publication)
-    ]    
+    ]

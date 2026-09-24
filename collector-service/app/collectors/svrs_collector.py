@@ -9,6 +9,7 @@ from datetime import datetime
 from app.model.publication import Publication
 from datetime import datetime, timedelta
 from pypdf import PdfReader
+from app.service.publication_identity_service import generate_external_id
 
 
 SVRS_URL = "https://dfe-portal.svrs.rs.gov.br/NFe/Documentos"
@@ -172,7 +173,16 @@ def get_publications() -> list[Publication]:
             onclick
         )
 
+        if not download_url:
+            continue
+
+        external_id = generate_external_id(
+            source="SVRS",
+            source_identifier=download_url
+        )
+
         publication = Publication(
+            external_id=external_id,
             source="SVRS",
             title=title,
             document_type=classify_document_type(title),
@@ -207,7 +217,7 @@ def classify_document_type(title: str) -> str:
     ):
         return "NOTA_TECNICA"
 
-    return "OUTRO"  
+    return "OUTRO"
 
 
 def download_document(

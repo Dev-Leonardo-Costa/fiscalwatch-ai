@@ -4,6 +4,7 @@ import json
 from datetime import datetime
 from app.model.publication import Publication
 from bs4 import BeautifulSoup
+from app.service.publication_identity_service import generate_external_id
 
 
 IMPRENSA_NACIONAL_URL = "https://www.gov.br/imprensanacional"
@@ -278,7 +279,13 @@ def parse_dou_publications(results: list[dict]) -> list[Publication]:
             + result["urlTitle"]
         )
 
+        external_id = generate_external_id(
+            source="IMPRENSA_NACIONAL_DOU",
+            source_identifier=result["urlTitle"]
+        )
+
         publication = Publication(
+            external_id=external_id,
             source="IMPRENSA_NACIONAL_DOU",
             title=result["title"],
             document_type=result.get("artType"),

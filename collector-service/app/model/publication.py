@@ -5,6 +5,8 @@ from pydantic import BaseModel
 
 
 class Publication(BaseModel):
+    external_id: str
+    
     source: str
     title: str
     document_type: Optional[str] = None

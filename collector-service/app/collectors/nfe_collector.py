@@ -5,9 +5,11 @@ from bs4 import BeautifulSoup
 from datetime import datetime
 from urllib.parse import urljoin
 from app.model.publication import Publication
+from app.service.publication_identity_service import generate_external_id
 
 
 NFE_PORTAL_URL = "https://www.nfe.fazenda.gov.br/portal/principal.aspx"
+
 
 def fetch_nfe_portal_page() -> str:
 
@@ -77,7 +79,7 @@ def parse_nfe_notas_tecnicas_links(html: str) -> list[dict]:
                 "href": href
             })
 
-    return notas   
+    return notas
 
 
 def parse_nfe_publications(notas: list[dict]) -> list[Publication]:
@@ -104,7 +106,13 @@ def parse_nfe_publications(notas: list[dict]) -> list[Publication]:
             href
         )
 
+        external_id = generate_external_id(
+            source="PORTAL_NFE",
+            source_identifier=download_url
+        )
+
         publication = Publication(
+            external_id=external_id,
             source="PORTAL_NFE",
             title=title,
             document_type="NOTA_TECNICA",
@@ -116,4 +124,4 @@ def parse_nfe_publications(notas: list[dict]) -> list[Publication]:
 
         publications.append(publication)
 
-    return publications   
+    return publications

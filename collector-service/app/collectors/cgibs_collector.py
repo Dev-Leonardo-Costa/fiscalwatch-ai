@@ -4,6 +4,7 @@ import httpx
 from bs4 import BeautifulSoup
 from datetime import datetime
 from app.model.publication import Publication
+from app.service.publication_identity_service import generate_external_id
 
 
 CGIBS_URL = "https://www.cgibs.gov.br"
@@ -19,7 +20,6 @@ def fetch_cgibs_page() -> str:
     response.raise_for_status()
 
     return response.text
-
 
 
 def parse_cgibs_links(html: str) -> list[dict]:
@@ -55,7 +55,7 @@ def fetch_cgibs_technical_documents_page() -> str:
 
     response.raise_for_status()
 
-    return response.text  
+    return response.text
 
 
 def inspect_technical_documents_page(html: str) -> dict:
@@ -129,7 +129,7 @@ def inspect_cgibs_scripts(html: str) -> list[dict]:
                 "content": content[:2000] if content else None
             })
 
-    return scripts    
+    return scripts
 
 
 CGIBS_PAGED_LIST_JS = (
@@ -162,7 +162,7 @@ def get_cgibs_script_sources(html: str) -> list[str]:
         if src:
             scripts.append(src)
 
-    return scripts   
+    return scripts
 
 
 CGIBS_MATRIZ_UI_JS = (
@@ -181,7 +181,7 @@ def fetch_cgibs_matriz_ui_js() -> str:
 
     response.raise_for_status()
 
-    return response.text     
+    return response.text
 
 
 def parse_cgibs_technical_documents(body: str) -> list[dict]:
@@ -223,7 +223,7 @@ def parse_cgibs_technical_documents(body: str) -> list[dict]:
             "description": description or None
         })
 
-    return documents    
+    return documents
 
 
 def fetch_cgibs_document_page(url: str) -> str:
@@ -235,7 +235,7 @@ def fetch_cgibs_document_page(url: str) -> str:
 
     response.raise_for_status()
 
-    return response.text   
+    return response.text
 
 
 def inspect_cgibs_document_page(url: str) -> dict:
@@ -267,7 +267,7 @@ def inspect_cgibs_document_page(url: str) -> dict:
         "html_size": len(html),
         "total_links": len(links),
         "links": links
-    }    
+    }
 
 
 def parse_cgibs_technical_files(url: str) -> list[dict]:
@@ -421,14 +421,20 @@ def parse_cgibs_document_metadata(url: str) -> dict:
             else None
         ),
         "url": url
-    }    
+    }
 
 
 def parse_cgibs_document_publication(url: str) -> Publication:
 
     metadata = parse_cgibs_document_metadata(url)
 
+    external_id = generate_external_id(
+        source="CGIBS",
+        source_identifier=url
+    )
+
     return Publication(
+        external_id=external_id,
         source="CGIBS",
         title=metadata["title"],
         document_type="DOCUMENTO_TECNICO",
@@ -436,7 +442,7 @@ def parse_cgibs_document_publication(url: str) -> Publication:
         modified_at=metadata["modified_at"],
         description=metadata["section"],
         download_url=url
-    )    
+    )
 
 
 def get_cgibs_technical_publications() -> list[Publication]:
@@ -457,4 +463,4 @@ def get_cgibs_technical_publications() -> list[Publication]:
 
         publications.append(publication)
 
-    return publications    
+    return publications

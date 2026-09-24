@@ -4,6 +4,7 @@ from bs4 import BeautifulSoup
 from datetime import datetime
 from app.model.publication import Publication
 from datetime import datetime, timedelta
+from app.service.publication_identity_service import generate_external_id
 
 
 RECEITA_RTC_URL = (
@@ -154,7 +155,13 @@ def parse_news_publication(url: str) -> Publication:
 
     data = inspect_news_page(url)
 
+    external_id = generate_external_id(
+        source="RECEITA_FEDERAL",
+        source_identifier=url
+    )
+
     return Publication(
+        external_id=external_id,
         source="RECEITA_FEDERAL",
         title=data["title"],
         document_type="NOTICIA",
