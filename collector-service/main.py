@@ -10,8 +10,7 @@ from app.collectors.receita_collector import get_news_publications
 from app.service.publication_service import filter_recent_publications
 from app.collectors.svrs_collector import get_publications
 from app.model.publication import Publication
-from app.model.publication_event import PublicationEvent
-from app.model.publication import Publication
+from app.service.publication_identity_service import generate_external_id
 
 from datetime import datetime
 
@@ -104,6 +103,12 @@ from app.collectors.nfe_collector import (
     fetch_nfe_notas_tecnicas_page,
     parse_nfe_notas_tecnicas_links,
     parse_nfe_publications
+)
+
+
+from app.model.publication_event import (
+    PublicationEvent,
+    PUBLICATION_DISCOVERED
 )
 
 
@@ -991,20 +996,33 @@ def test_merge_nfe(hours: int = 72):
 @app.get("/test/publications/deduplicate")
 def test_deduplicate_publications():
 
+    svrs_external_id = generate_external_id(
+        source="SVRS",
+        source_identifier="NT2026.009_v1.00"
+    )
+
+    portal_nfe_external_id = generate_external_id(
+        source="PORTAL_NFE",
+        source_identifier="NT2026.009_v1.00"
+    )
+
     publications = [
         Publication(
+            external_id=svrs_external_id,
             source="SVRS",
             title="Nota Técnica 2026.009 v1.00",
             document_type="NOTA_TECNICA",
             published_at=datetime.now()
         ),
         Publication(
+            external_id=svrs_external_id,
             source="SVRS",
             title="Nota Técnica 2026.009 v1.00",
             document_type="NOTA_TECNICA",
             published_at=datetime.now()
         ),
         Publication(
+            external_id=portal_nfe_external_id,
             source="PORTAL_NFE",
             title="Nota Técnica 2026.009 v1.00",
             document_type="NOTA_TECNICA",
@@ -1051,7 +1069,13 @@ def test_publication_relevance():
 @app.get("/test/publication-event")
 def test_publication_event():
 
+    external_id = generate_external_id(
+        source="PORTAL_NFE",
+        source_identifier="https://www.nfe.fazenda.gov.br/test/nota-tecnica-2026-009"
+    )
+
     publication = Publication(
+        external_id=external_id,
         source="PORTAL_NFE",
         title="Nota Técnica 2026.009 v1.00",
         document_type="NOTA_TECNICA",
@@ -1061,7 +1085,7 @@ def test_publication_event():
     )
 
     event = PublicationEvent(
-        event_type="publication.discovered",
+        event_type=PUBLICATION_DISCOVERED,
         occurred_at=datetime.now(),
         publication=publication
     )
