@@ -5,6 +5,7 @@ from datetime import datetime
 from app.model.publication import Publication
 from bs4 import BeautifulSoup
 from app.service.publication_identity_service import generate_external_id
+from app.service.document_type_service import normalize_document_type
 
 
 IMPRENSA_NACIONAL_URL = "https://www.gov.br/imprensanacional"
@@ -288,7 +289,9 @@ def parse_dou_publications(results: list[dict]) -> list[Publication]:
             external_id=external_id,
             source="IMPRENSA_NACIONAL_DOU",
             title=result["title"],
-            document_type=result.get("artType"),
+            document_type=normalize_document_type(
+                result.get("artType")
+            ),
             published_at=published_at,
             modified_at=None,
             description=result.get("content"),
