@@ -87,6 +87,7 @@ def is_relevant_publication(
         "reforma tributária",
         "cbs",
         "imposto seletivo",
+        "imposto sobre bens e serviços",
         "nf-e",
         "nfc-e",
         "dfe",
@@ -98,7 +99,8 @@ def is_relevant_publication(
         "xsd",
         "regra de validação",
         "ato técnico conjunto",
-        "api fiscal"
+        "api fiscal",
+        "cgibs"
     ]
 
     text = (
