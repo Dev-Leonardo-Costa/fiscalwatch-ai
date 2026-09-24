@@ -19,12 +19,25 @@ public class PublicationController {
     }
 
     @PostMapping
-    public ResponseEntity<PublicationResponse> create(@Valid @RequestBody PublicationRequest request) {
+    public ResponseEntity<PublicationResponse> create(
+            @Valid @RequestBody
+            PublicationRequest request
+    ) {
 
         PublicationResponse response = publicationService.create(request);
 
         return ResponseEntity
                 .status(HttpStatus.CREATED)
                 .body(response);
+    }
+
+    @GetMapping("/{id}")
+    public ResponseEntity<PublicationResponse> findById(
+            @PathVariable Long id
+    ) {
+
+        PublicationResponse response = publicationService.findById(id);
+
+        return ResponseEntity.ok(response);
     }
 }

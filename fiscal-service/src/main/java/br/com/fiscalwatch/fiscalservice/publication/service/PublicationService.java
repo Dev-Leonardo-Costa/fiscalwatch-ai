@@ -3,6 +3,7 @@ package br.com.fiscalwatch.fiscalservice.publication.service;
 import br.com.fiscalwatch.fiscalservice.publication.dto.PublicationRequest;
 import br.com.fiscalwatch.fiscalservice.publication.dto.PublicationResponse;
 import br.com.fiscalwatch.fiscalservice.publication.entity.PublicationEntity;
+import br.com.fiscalwatch.fiscalservice.publication.exception.PublicationNotFoundException;
 import br.com.fiscalwatch.fiscalservice.publication.mapper.PublicationMapper;
 import br.com.fiscalwatch.fiscalservice.publication.repository.PublicationRepository;
 import lombok.RequiredArgsConstructor;
@@ -25,5 +26,17 @@ public class PublicationService {
         PublicationEntity savedEntity = publicationRepository.save(entity);
 
         return publicationMapper.toResponse(savedEntity);
+    }
+
+    @Transactional(readOnly = true)
+    public PublicationResponse findById(Long id) {
+
+        PublicationEntity entity = publicationRepository
+                .findById(id)
+                .orElseThrow(
+                        () -> new PublicationNotFoundException(id)
+                );
+
+        return publicationMapper.toResponse(entity);
     }
 }
