@@ -10,6 +10,10 @@ import java.time.LocalDateTime;
 public record PublicationRequest(
 
         @NotBlank
+        @Size(max = 64)
+        String externalId,
+
+        @NotBlank
         @Size(max = 50)
         String source,
 

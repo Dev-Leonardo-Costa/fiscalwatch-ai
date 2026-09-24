@@ -3,6 +3,7 @@ package br.com.fiscalwatch.fiscalservice.publication.service;
 import br.com.fiscalwatch.fiscalservice.publication.dto.PublicationRequest;
 import br.com.fiscalwatch.fiscalservice.publication.dto.PublicationResponse;
 import br.com.fiscalwatch.fiscalservice.publication.entity.PublicationEntity;
+import br.com.fiscalwatch.fiscalservice.publication.exception.PublicationAlreadyExistsException;
 import br.com.fiscalwatch.fiscalservice.publication.exception.PublicationNotFoundException;
 import br.com.fiscalwatch.fiscalservice.publication.mapper.PublicationMapper;
 import br.com.fiscalwatch.fiscalservice.publication.repository.PublicationRepository;
@@ -21,8 +22,11 @@ public class PublicationService {
     @Transactional
     public PublicationResponse create(PublicationRequest request) {
 
-        PublicationEntity entity = publicationMapper.toEntity(request);
+        if (publicationRepository.existsByExternalId(request.externalId())) {
+            throw new PublicationAlreadyExistsException(request.externalId());
+        }
 
+        PublicationEntity entity = publicationMapper.toEntity(request);
         PublicationEntity savedEntity = publicationRepository.save(entity);
 
         return publicationMapper.toResponse(savedEntity);
