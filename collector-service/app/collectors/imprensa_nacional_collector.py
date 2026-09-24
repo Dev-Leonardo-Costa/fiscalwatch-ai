@@ -290,7 +290,8 @@ def parse_dou_publications(results: list[dict]) -> list[Publication]:
             source="IMPRENSA_NACIONAL_DOU",
             title=result["title"],
             document_type=normalize_document_type(
-                result.get("artType")
+                result.get("artType"),
+                result.get("title")
             ),
             published_at=published_at,
             modified_at=None,

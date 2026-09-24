@@ -1,4 +1,12 @@
-def normalize_document_type(document_type: str | None) -> str:
+def normalize_document_type(
+    document_type: str | None,
+    title: str | None = None
+) -> str:
+
+    normalized_title = (title or "").strip().lower()
+
+    if "ato técnico" in normalized_title:
+        return "ATO_TECNICO"
 
     if not document_type:
         return "OUTRO"
