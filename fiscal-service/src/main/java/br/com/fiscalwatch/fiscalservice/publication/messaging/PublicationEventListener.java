@@ -18,7 +18,7 @@ public class PublicationEventListener {
     private final PublicationService publicationService;
 
 
-    @RabbitListener(queues = "fiscal.publication.discovered")
+    @RabbitListener(queues = RabbitMqConstants.PUBLICATION_DISCOVERED_QUEUE )
     public void consume(PublicationEvent event) {
 
         log.info(
