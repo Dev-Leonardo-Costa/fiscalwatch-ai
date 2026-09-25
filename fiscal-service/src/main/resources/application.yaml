@@ -11,3 +11,9 @@ spring:
     hibernate:
       ddl-auto: validate
     open-in-view: false
+
+  rabbitmq:
+    host: localhost
+    port: 5672
+    username: fiscalwatch
+    password: fiscalwatch
