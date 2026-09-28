@@ -72,4 +72,32 @@ public class RabbitMqConfig {
                         RabbitMqConstants.PUBLICATION_DLQ_ROUTING_KEY
                 );
     }
+
+    @Bean
+    public Queue publicationRetryQueue() {
+        return QueueBuilder
+                .durable(RabbitMqConstants.PUBLICATION_RETRY_QUEUE)
+
+                // A mensagem permanece 5 segundos nesta fila.
+                .ttl(5000)
+
+                // Depois do TTL, volta para nosso exchange.
+                .deadLetterExchange(RabbitMqConstants.PUBLICATION_EXCHANGE)
+
+                // E retorna usando a routing key da fila principal.
+                .deadLetterRoutingKey(
+                        RabbitMqConstants.PUBLICATION_DISCOVERED_ROUTING_KEY
+                )
+                .build();
+    }
+
+    @Bean
+    public Binding publicationRetryBinding() {
+        return BindingBuilder
+                .bind(publicationRetryQueue())
+                .to(publicationExchange())
+                .with(
+                        RabbitMqConstants.PUBLICATION_RETRY_ROUTING_KEY
+                );
+    }
 }

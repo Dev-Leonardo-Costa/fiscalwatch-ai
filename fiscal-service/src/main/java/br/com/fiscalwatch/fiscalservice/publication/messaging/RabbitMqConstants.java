@@ -14,6 +14,12 @@ public final class RabbitMqConstants {
     public static final String PUBLICATION_DISCOVERED_ROUTING_KEY =
             "publication.discovered";
 
+    public static final String PUBLICATION_RETRY_QUEUE =
+            "fiscal.publication.discovered.retry";
+
+    public static final String PUBLICATION_RETRY_ROUTING_KEY =
+            "publication.discovered.retry";
+
     public static final String PUBLICATION_DLQ =
             "fiscal.publication.discovered.dlq";
 
