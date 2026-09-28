@@ -20,17 +20,6 @@ def publish_publication_event(event: PublicationEvent) -> None:
             durable=True
         )
 
-        channel.queue_declare(
-            queue="fiscal.publication.discovered",
-            durable=True
-        )
-
-        channel.queue_bind(
-            exchange=EXCHANGE_NAME,
-            queue="fiscal.publication.discovered",
-            routing_key=ROUTING_KEY
-        )
-
         message = event.model_dump_json()
 
         channel.basic_publish(

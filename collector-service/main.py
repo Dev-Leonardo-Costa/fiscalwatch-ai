@@ -8,6 +8,7 @@ from app.collectors.cgibs_collector import get_cgibs_technical_publications
 from app.collectors.receita_collector import parse_news_publication
 from app.collectors.receita_collector import get_news_publications
 from app.service.publication_service import filter_recent_publications
+from app.service.publication_dispatch_service import dispatch_svrs_publications
 from app.collectors.svrs_collector import get_publications
 from app.model.publication import Publication
 from app.service.publication_identity_service import generate_external_id
@@ -217,6 +218,11 @@ def recent_publications(hours: int = 72):
         "total": len(recent),
         "publications": recent
     }
+
+
+@app.post("/dispatch/svrs")
+def dispatch_svrs():
+    return dispatch_svrs_publications()
 
 
 @app.get("/test/svrs/download")
