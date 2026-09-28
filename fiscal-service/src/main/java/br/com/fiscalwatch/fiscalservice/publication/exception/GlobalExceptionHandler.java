@@ -1,5 +1,6 @@
 package br.com.fiscalwatch.fiscalservice.publication.exception;
 
+import br.com.fiscalwatch.fiscalservice.impactanalysis.exception.ImpactAnalysisNotFoundException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -17,6 +18,23 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(PublicationNotFoundException.class)
     public ResponseEntity<ApiErrorResponse> handlePublicationNotFound(
             PublicationNotFoundException exception
+    ) {
+
+        ApiErrorResponse error = new ApiErrorResponse(
+                LocalDateTime.now(),
+                HttpStatus.NOT_FOUND.value(),
+                HttpStatus.NOT_FOUND.getReasonPhrase(),
+                exception.getMessage()
+        );
+
+        return ResponseEntity
+                .status(HttpStatus.NOT_FOUND)
+                .body(error);
+    }
+
+    @ExceptionHandler(ImpactAnalysisNotFoundException.class)
+    public ResponseEntity<ApiErrorResponse> handleImpactAnalysisNotFound(
+            ImpactAnalysisNotFoundException exception
     ) {
 
         ApiErrorResponse error = new ApiErrorResponse(
