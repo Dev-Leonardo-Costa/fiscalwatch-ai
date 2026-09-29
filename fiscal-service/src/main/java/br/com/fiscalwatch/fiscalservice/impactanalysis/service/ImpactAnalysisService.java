@@ -4,6 +4,7 @@ import br.com.fiscalwatch.fiscalservice.impactanalysis.analyzer.ActionItemResult
 import br.com.fiscalwatch.fiscalservice.impactanalysis.analyzer.EvidenceResult;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.analyzer.ImpactAnalysisResult;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.analyzer.ImpactAnalyzer;
+import br.com.fiscalwatch.fiscalservice.impactanalysis.analyzer.PublicationDocumentAnalysisInput;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.analyzer.PublicationAnalysisInput;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.analyzer.TechnicalImpactResult;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.dto.ActionItemRequest;
@@ -19,8 +20,10 @@ import br.com.fiscalwatch.fiscalservice.impactanalysis.enums.AnalysisStatus;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.exception.ImpactAnalysisNotFoundException;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.mapper.ImpactAnalysisMapper;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.repository.ImpactAnalysisRepository;
+import br.com.fiscalwatch.fiscalservice.publication.entity.PublicationDocumentEntity;
 import br.com.fiscalwatch.fiscalservice.publication.entity.PublicationEntity;
 import br.com.fiscalwatch.fiscalservice.publication.exception.PublicationNotFoundException;
+import br.com.fiscalwatch.fiscalservice.publication.repository.PublicationDocumentRepository;
 import br.com.fiscalwatch.fiscalservice.publication.repository.PublicationRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -35,6 +38,7 @@ public class ImpactAnalysisService {
 
     private final ImpactAnalysisRepository impactAnalysisRepository;
     private final PublicationRepository publicationRepository;
+    private final PublicationDocumentRepository publicationDocumentRepository;
     private final ImpactAnalysisMapper impactAnalysisMapper;
     private final ImpactAnalyzer impactAnalyzer;
 
@@ -109,8 +113,15 @@ public class ImpactAnalysisService {
                         () -> new PublicationNotFoundException(publicationId)
                 );
 
+        PublicationDocumentAnalysisInput document =
+                publicationDocumentRepository
+                        .findByPublicationId(publicationId)
+                        .map(this::toPublicationDocumentAnalysisInput)
+                        .orElse(null);
+
         PublicationAnalysisInput input = toPublicationAnalysisInput(
-                publication
+                publication,
+                document
         );
         ImpactAnalysisResult result = impactAnalyzer.analyze(input);
 
@@ -141,7 +152,8 @@ public class ImpactAnalysisService {
     }
 
     private PublicationAnalysisInput toPublicationAnalysisInput(
-            PublicationEntity publication
+            PublicationEntity publication,
+            PublicationDocumentAnalysisInput document
     ) {
 
         return new PublicationAnalysisInput(
@@ -153,7 +165,24 @@ public class ImpactAnalysisService {
                 publication.getPublishedAt(),
                 publication.getModifiedAt(),
                 publication.getDescription(),
-                publication.getDownloadUrl()
+                publication.getDownloadUrl(),
+                document
+        );
+    }
+
+    private PublicationDocumentAnalysisInput toPublicationDocumentAnalysisInput(
+            PublicationDocumentEntity document
+    ) {
+
+        return new PublicationDocumentAnalysisInput(
+                document.getSourceUrl(),
+                document.getContentText(),
+                document.getContentHash(),
+                document.getContentLength(),
+                document.getExtractionStatus(),
+                document.getExtractionError(),
+                document.getExtractorVersion(),
+                document.getExtractedAt()
         );
     }
 

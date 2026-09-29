@@ -18,9 +18,12 @@ import br.com.fiscalwatch.fiscalservice.impactanalysis.exception.ImpactAnalysisN
 import br.com.fiscalwatch.fiscalservice.impactanalysis.mapper.ImpactAnalysisMapper;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.repository.ImpactAnalysisRepository;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.service.ImpactAnalysisService;
+import br.com.fiscalwatch.fiscalservice.publication.entity.PublicationDocumentEntity;
 import br.com.fiscalwatch.fiscalservice.publication.entity.PublicationEntity;
 import br.com.fiscalwatch.fiscalservice.publication.enums.DocumentType;
+import br.com.fiscalwatch.fiscalservice.publication.enums.ExtractionStatus;
 import br.com.fiscalwatch.fiscalservice.publication.exception.PublicationNotFoundException;
+import br.com.fiscalwatch.fiscalservice.publication.repository.PublicationDocumentRepository;
 import br.com.fiscalwatch.fiscalservice.publication.repository.PublicationRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -35,6 +38,7 @@ import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
@@ -52,6 +56,9 @@ class ImpactAnalysisServiceTest {
     private PublicationRepository publicationRepository;
 
     @Mock
+    private PublicationDocumentRepository publicationDocumentRepository;
+
+    @Mock
     private ImpactAnalysisMapper impactAnalysisMapper;
 
     @Mock
@@ -64,6 +71,7 @@ class ImpactAnalysisServiceTest {
         impactAnalysisService = new ImpactAnalysisService(
                 impactAnalysisRepository,
                 publicationRepository,
+                publicationDocumentRepository,
                 impactAnalysisMapper,
                 impactAnalyzer
         );
@@ -227,6 +235,8 @@ class ImpactAnalysisServiceTest {
 
         when(publicationRepository.findById(publicationId))
                 .thenReturn(Optional.of(publication));
+        when(publicationDocumentRepository.findByPublicationId(publicationId))
+                .thenReturn(Optional.empty());
         when(impactAnalyzer.analyze(any(PublicationAnalysisInput.class)))
                 .thenReturn(analysisResult);
         when(impactAnalysisRepository.save(any(ImpactAnalysis.class)))
@@ -258,6 +268,7 @@ class ImpactAnalysisServiceTest {
         assertEquals(publication.getModifiedAt(), input.modifiedAt());
         assertEquals(publication.getDescription(), input.description());
         assertEquals(publication.getDownloadUrl(), input.downloadUrl());
+        assertNull(input.document());
 
         ImpactAnalysis saved = analysisCaptor.getValue();
 
@@ -304,6 +315,71 @@ class ImpactAnalysisServiceTest {
     }
 
     @Test
+    void deveGerarAnaliseAutomaticaComDocumentoExtraido() {
+
+        Long publicationId = 10L;
+        PublicationEntity publication = criarPublicacao(publicationId);
+        PublicationDocumentEntity document = criarDocumento(publication);
+        ImpactAnalysisResult analysisResult = criarResultadoAnalise();
+        ImpactAnalysisResponse response = criarResponse(1L, publicationId);
+
+        when(publicationRepository.findById(publicationId))
+                .thenReturn(Optional.of(publication));
+        when(publicationDocumentRepository.findByPublicationId(publicationId))
+                .thenReturn(Optional.of(document));
+        when(impactAnalyzer.analyze(any(PublicationAnalysisInput.class)))
+                .thenReturn(analysisResult);
+        when(impactAnalysisRepository.save(any(ImpactAnalysis.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        when(impactAnalysisMapper.toResponse(any(ImpactAnalysis.class)))
+                .thenReturn(response);
+
+        ImpactAnalysisResponse result =
+                impactAnalysisService.analyzePublication(publicationId);
+
+        ArgumentCaptor<PublicationAnalysisInput> inputCaptor =
+                ArgumentCaptor.forClass(PublicationAnalysisInput.class);
+        ArgumentCaptor<ImpactAnalysis> analysisCaptor =
+                ArgumentCaptor.forClass(ImpactAnalysis.class);
+
+        verify(impactAnalyzer).analyze(inputCaptor.capture());
+        verify(impactAnalysisRepository).save(analysisCaptor.capture());
+
+        PublicationAnalysisInput input = inputCaptor.getValue();
+
+        assertNotNull(input.document());
+        assertEquals(document.getSourceUrl(), input.document().sourceUrl());
+        assertEquals(document.getContentText(), input.document().contentText());
+        assertEquals(document.getContentHash(), input.document().contentHash());
+        assertEquals(
+                document.getContentLength(),
+                input.document().contentLength()
+        );
+        assertEquals(
+                document.getExtractionStatus(),
+                input.document().extractionStatus()
+        );
+        assertEquals(
+                document.getExtractionError(),
+                input.document().extractionError()
+        );
+        assertEquals(
+                document.getExtractorVersion(),
+                input.document().extractorVersion()
+        );
+        assertEquals(document.getExtractedAt(), input.document().extractedAt());
+
+        ImpactAnalysis saved = analysisCaptor.getValue();
+
+        assertSame(publication, saved.getPublication());
+        assertEquals(analysisResult.summary(), saved.getSummary());
+        assertEquals(1, saved.getTechnicalImpacts().size());
+        assertEquals(1, saved.getActionItems().size());
+        assertEquals(1, saved.getEvidences().size());
+        assertSame(response, result);
+    }
+
+    @Test
     void deveNaoChamarAnalyzerAoGerarAnaliseParaPublicacaoInexistente() {
 
         Long publicationId = 10L;
@@ -330,6 +406,8 @@ class ImpactAnalysisServiceTest {
 
         when(publicationRepository.findById(publicationId))
                 .thenReturn(Optional.of(publication));
+        when(publicationDocumentRepository.findByPublicationId(publicationId))
+                .thenReturn(Optional.empty());
         when(impactAnalyzer.analyze(any(PublicationAnalysisInput.class)))
                 .thenThrow(exception);
 
@@ -412,6 +490,25 @@ class ImpactAnalysisServiceTest {
         publication.setDownloadUrl("https://example.com/nota-tecnica.pdf");
 
         return publication;
+    }
+
+    private PublicationDocumentEntity criarDocumento(
+            PublicationEntity publication
+    ) {
+
+        PublicationDocumentEntity document = new PublicationDocumentEntity();
+
+        document.setPublication(publication);
+        document.setSourceUrl("https://example.com/nota-tecnica.pdf");
+        document.setContentText("Texto oficial extraido da publicacao.");
+        document.setContentHash("a".repeat(64));
+        document.setContentLength(document.getContentText().length());
+        document.setExtractionStatus(ExtractionStatus.EXTRACTED);
+        document.setExtractionError(null);
+        document.setExtractorVersion("svrs-pypdf-v1");
+        document.setExtractedAt(LocalDateTime.of(2026, 9, 29, 10, 0));
+
+        return document;
     }
 
     private ImpactAnalysisResult criarResultadoAnalise() {

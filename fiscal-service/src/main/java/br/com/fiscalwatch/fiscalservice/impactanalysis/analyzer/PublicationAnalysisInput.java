@@ -14,6 +14,7 @@ public record PublicationAnalysisInput(
         LocalDateTime publishedAt,
         LocalDateTime modifiedAt,
         String description,
-        String downloadUrl
+        String downloadUrl,
+        PublicationDocumentAnalysisInput document
 ) {
 }
