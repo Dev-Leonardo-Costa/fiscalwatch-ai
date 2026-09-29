@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from app.collectors.receita_collector import fetch_receita_page
 from app.collectors.receita_collector import inspect_news_page
 from app.collectors.cgibs_collector import fetch_cgibs_page
@@ -8,7 +8,10 @@ from app.collectors.cgibs_collector import get_cgibs_technical_publications
 from app.collectors.receita_collector import parse_news_publication
 from app.collectors.receita_collector import get_news_publications
 from app.service.publication_service import filter_recent_publications
-from app.service.publication_dispatch_service import dispatch_svrs_publications
+from app.service.publication_dispatch_service import (
+    dispatch_svrs_publication_by_external_id,
+    dispatch_svrs_publications
+)
 from app.collectors.svrs_collector import get_publications
 from app.model.publication import Publication
 from app.service.publication_identity_service import generate_external_id
@@ -223,6 +226,19 @@ def recent_publications(hours: int = 72):
 @app.post("/dispatch/svrs")
 def dispatch_svrs():
     return dispatch_svrs_publications()
+
+
+@app.post("/dispatch/svrs/publications/{external_id}")
+def dispatch_svrs_publication(external_id: str):
+    result = dispatch_svrs_publication_by_external_id(external_id)
+
+    if result["status"] == "NOT_FOUND":
+        raise HTTPException(
+            status_code=404,
+            detail=result
+        )
+
+    return result
 
 
 @app.get("/test/svrs/download")
