@@ -262,8 +262,16 @@ public class RuleBasedFiscalChangeDetector implements FiscalChangeDetector {
         int lineStart = contentText.lastIndexOf('\n', rulePosition);
         int sentenceStart = contentText.lastIndexOf('.', rulePosition);
 
-        int start = Math.max(paragraphStart + 2, lineStart + 1);
-        start = Math.max(start, sentenceStart + 1);
+        int start = 0;
+        if (paragraphStart >= 0) {
+            start = Math.max(start, paragraphStart + 2);
+        }
+        if (lineStart >= 0) {
+            start = Math.max(start, lineStart + 1);
+        }
+        if (sentenceStart >= 0) {
+            start = Math.max(start, sentenceStart + 1);
+        }
 
         return firstNonWhitespacePosition(contentText, start);
     }

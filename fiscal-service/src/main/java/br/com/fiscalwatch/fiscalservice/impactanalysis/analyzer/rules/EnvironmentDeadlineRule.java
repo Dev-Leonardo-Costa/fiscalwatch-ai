@@ -32,8 +32,8 @@ public class EnvironmentDeadlineRule implements FiscalRule {
     );
 
     @Override
-    public Optional<RuleMatch> evaluate(DocumentContext context) {
-        String text = context.analyzableText();
+    public Optional<RuleMatch> evaluate(FiscalAnalysisContext context) {
+        String text = context.documentContext().analyzableText();
         Optional<RuleMatch> structuredScheduleMatch =
                 evaluateStructuredSchedule(text);
 

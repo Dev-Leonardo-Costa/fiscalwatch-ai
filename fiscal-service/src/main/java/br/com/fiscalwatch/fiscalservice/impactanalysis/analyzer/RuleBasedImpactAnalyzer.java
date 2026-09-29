@@ -1,8 +1,12 @@
 package br.com.fiscalwatch.fiscalservice.impactanalysis.analyzer;
 
+import br.com.fiscalwatch.fiscalservice.fiscalchange.FiscalChange;
+import br.com.fiscalwatch.fiscalservice.fiscalchange.FiscalChangeDetector;
+import br.com.fiscalwatch.fiscalservice.fiscalchange.RuleBasedFiscalChangeDetector;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.analyzer.rules.CfopValidationRule;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.analyzer.rules.DocumentContext;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.analyzer.rules.EnvironmentDeadlineRule;
+import br.com.fiscalwatch.fiscalservice.impactanalysis.analyzer.rules.FiscalAnalysisContext;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.analyzer.rules.FiscalRuleEngine;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.analyzer.rules.NegationDetector;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.analyzer.rules.RuleMatch;
@@ -29,17 +33,26 @@ public class RuleBasedImpactAnalyzer implements ImpactAnalyzer {
     );
 
     private final FiscalRuleEngine fiscalRuleEngine;
+    private final FiscalChangeDetector fiscalChangeDetector;
     private final NegationDetector negationDetector;
 
     public RuleBasedImpactAnalyzer() {
         this(new FiscalRuleEngine(List.of(
                 new CfopValidationRule(),
                 new EnvironmentDeadlineRule()
-        )));
+        )), new RuleBasedFiscalChangeDetector());
     }
 
     RuleBasedImpactAnalyzer(FiscalRuleEngine fiscalRuleEngine) {
+        this(fiscalRuleEngine, new RuleBasedFiscalChangeDetector());
+    }
+
+    public RuleBasedImpactAnalyzer(
+            FiscalRuleEngine fiscalRuleEngine,
+            FiscalChangeDetector fiscalChangeDetector
+    ) {
         this.fiscalRuleEngine = fiscalRuleEngine;
+        this.fiscalChangeDetector = fiscalChangeDetector;
         this.negationDetector = new NegationDetector();
     }
 
@@ -47,7 +60,12 @@ public class RuleBasedImpactAnalyzer implements ImpactAnalyzer {
     public ImpactAnalysisResult analyze(PublicationAnalysisInput publication) {
 
         DocumentContext context = DocumentContext.from(publication);
-        List<RuleMatch> matches = fiscalRuleEngine.evaluate(context);
+        List<FiscalChange> fiscalChanges = fiscalChangeDetector.detect(context);
+        FiscalAnalysisContext analysisContext = new FiscalAnalysisContext(
+                context,
+                fiscalChanges
+        );
+        List<RuleMatch> matches = fiscalRuleEngine.evaluate(analysisContext);
         ImpactLevel impactLevel = resolveImpactLevel(context);
         String summary = "Analise baseada em regras para a publicacao: "
                 + publication.title();

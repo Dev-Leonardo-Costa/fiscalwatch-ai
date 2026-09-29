@@ -2,11 +2,13 @@ package br.com.fiscalwatch.fiscalservice;
 
 import br.com.fiscalwatch.fiscalservice.impactanalysis.analyzer.rules.DocumentContext;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.analyzer.rules.EnvironmentDeadlineRule;
+import br.com.fiscalwatch.fiscalservice.impactanalysis.analyzer.rules.FiscalAnalysisContext;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.analyzer.rules.RuleMatch;
 import br.com.fiscalwatch.fiscalservice.publication.enums.DocumentType;
 import org.junit.jupiter.api.Test;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -126,8 +128,8 @@ class EnvironmentDeadlineRuleTest {
         assertFalse(result.isPresent());
     }
 
-    private DocumentContext contexto(String contentText) {
-        return new DocumentContext(
+    private FiscalAnalysisContext contexto(String contentText) {
+        return new FiscalAnalysisContext(new DocumentContext(
                 "Nota Técnica",
                 null,
                 DocumentType.NOTA_TECNICA,
@@ -135,6 +137,6 @@ class EnvironmentDeadlineRuleTest {
                 contentText,
                 "https://example.com/documento.pdf",
                 true
-        );
+        ), List.of());
     }
 }

@@ -11,7 +11,7 @@ public class FiscalRuleEngine {
         this.rules = List.copyOf(rules);
     }
 
-    public List<RuleMatch> evaluate(DocumentContext context) {
+    public List<RuleMatch> evaluate(FiscalAnalysisContext context) {
         return rules.stream()
                 .map(rule -> rule.evaluate(context))
                 .flatMap(Optional::stream)

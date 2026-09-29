@@ -4,5 +4,5 @@ import java.util.Optional;
 
 public interface FiscalRule {
 
-    Optional<RuleMatch> evaluate(DocumentContext context);
+    Optional<RuleMatch> evaluate(FiscalAnalysisContext context);
 }

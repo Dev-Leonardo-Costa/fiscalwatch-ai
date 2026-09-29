@@ -1,9 +1,15 @@
 package br.com.fiscalwatch.fiscalservice;
 
+import br.com.fiscalwatch.fiscalservice.fiscalchange.FiscalChange;
+import br.com.fiscalwatch.fiscalservice.fiscalchange.FiscalChangeDetector;
+import br.com.fiscalwatch.fiscalservice.fiscalchange.FiscalChangeType;
+import br.com.fiscalwatch.fiscalservice.impactanalysis.analyzer.EvidenceResult;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.analyzer.ImpactAnalysisResult;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.analyzer.PublicationDocumentAnalysisInput;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.analyzer.PublicationAnalysisInput;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.analyzer.RuleBasedImpactAnalyzer;
+import br.com.fiscalwatch.fiscalservice.impactanalysis.analyzer.rules.FiscalAnalysisContext;
+import br.com.fiscalwatch.fiscalservice.impactanalysis.analyzer.rules.FiscalRuleEngine;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.enums.ImpactLevel;
 import br.com.fiscalwatch.fiscalservice.publication.enums.DocumentType;
 import br.com.fiscalwatch.fiscalservice.publication.enums.ExtractionStatus;
@@ -11,6 +17,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -258,6 +267,110 @@ class RuleBasedImpactAnalyzerTest {
         );
     }
 
+    @Test
+    void deveEntregarFiscalChangesDetectadasParaFiscalRule() {
+        FiscalChange fiscalChange = fiscalChangeRepresentativa();
+        AtomicReference<FiscalAnalysisContext> capturedContext =
+                new AtomicReference<>();
+        RuleBasedImpactAnalyzer analyzerWithFakeDetector =
+                new RuleBasedImpactAnalyzer(
+                        new FiscalRuleEngine(List.of(context -> {
+                            capturedContext.set(context);
+                            return Optional.empty();
+                        })),
+                        context -> List.of(fiscalChange)
+                );
+
+        analyzerWithFakeDetector.analyze(criarInput(
+                "Nota Técnica 2026.009",
+                null,
+                criarDocumento(
+                        ExtractionStatus.EXTRACTED,
+                        "https://example.com/documento.pdf",
+                        "Texto oficial extraido."
+                )
+        ));
+
+        assertEquals(
+                List.of(fiscalChange),
+                capturedContext.get().fiscalChanges()
+        );
+        assertEquals(
+                "Texto oficial extraido.",
+                capturedContext.get().documentContext().documentContentText()
+        );
+    }
+
+    @Test
+    void deveEntregarListaVaziaQuandoDetectorNaoEncontrarFiscalChanges() {
+        AtomicReference<FiscalAnalysisContext> capturedContext =
+                new AtomicReference<>();
+        FiscalChangeDetector emptyDetector = context -> List.of();
+        RuleBasedImpactAnalyzer analyzerWithEmptyDetector =
+                new RuleBasedImpactAnalyzer(
+                        new FiscalRuleEngine(List.of(context -> {
+                            capturedContext.set(context);
+                            return Optional.empty();
+                        })),
+                        emptyDetector
+                );
+
+        ImpactAnalysisResult result = analyzerWithEmptyDetector.analyze(
+                criarInput("Comunicado fiscal", "Publicacao informativa")
+        );
+
+        assertTrue(capturedContext.get().fiscalChanges().isEmpty());
+        assertEquals(ImpactLevel.LOW, result.impactLevel());
+        assertEquals(
+                "Revisar impacto tecnico da publicacao",
+                result.technicalImpacts().get(0).title()
+        );
+    }
+
+    @Test
+    void deveGerarImpactoCfopAPartirDeFiscalChangeDetectadoNaNt2026009() {
+        String contentText = "Esta Nota Técnica altera a regra de validação "
+                + "I08-140 da Nota Fiscal Eletrônica (NF-e), modelo 55, "
+                + "para permitir a utilização dos CFOP 1.949 e 2.949 em "
+                + "todas as situações abrangidas pela própria regra.";
+
+        ImpactAnalysisResult result = analyzer.analyze(criarInput(
+                "Nota Técnica 2026.009 v.1.00",
+                null,
+                criarDocumento(
+                        ExtractionStatus.EXTRACTED,
+                        "https://example.com/documento.pdf",
+                        contentText
+                )
+        ));
+
+        assertEquals(
+                1,
+                result.technicalImpacts().stream()
+                        .filter(technicalImpact -> technicalImpact.title()
+                                .equals("Revisar regra de validação de CFOP"))
+                        .count()
+        );
+        assertEquals(
+                "NF-e modelo 55",
+                result.technicalImpacts().getFirst().affectedComponent()
+        );
+        assertEquals(
+                "Verificar implementação da regra I08-140 para os CFOP "
+                        + "1.949 e 2.949.",
+                result.actionItems().getFirst().description()
+        );
+        assertEquals(1, result.evidences().size());
+        assertEquals(contentText, result.evidences().getFirst().excerpt());
+        assertEquals(
+                contentText.substring(
+                        result.evidences().getFirst().startPosition(),
+                        result.evidences().getFirst().endPosition()
+                ),
+                result.evidences().getFirst().excerpt()
+        );
+    }
+
     private void assertDocumentoNaoExtraidoUsaFallback(
             ExtractionStatus extractionStatus
     ) {
@@ -332,6 +445,27 @@ class RuleBasedImpactAnalyzerTest {
                         : null,
                 "svrs-pypdf-v1",
                 LocalDateTime.of(2026, 9, 29, 10, 0)
+        );
+    }
+
+    private FiscalChange fiscalChangeRepresentativa() {
+        return new FiscalChange(
+                FiscalChangeType.VALIDATION_RULE_CHANGE,
+                "I08-140",
+                "CFOP",
+                "NF-e modelo 55",
+                List.of("1.949", "2.949"),
+                "Alteração da regra de validação I08-140 para permitir "
+                        + "os CFOP 1.949 e 2.949 na NF-e modelo 55.",
+                new EvidenceResult(
+                        "Nota Técnica 2026.009 v.1.00",
+                        "https://example.com/documento.pdf",
+                        null,
+                        null,
+                        "Esta Nota Técnica altera a regra de validação I08-140.",
+                        10,
+                        67
+                )
         );
     }
 }
