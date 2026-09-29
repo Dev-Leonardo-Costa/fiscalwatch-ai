@@ -1,6 +1,5 @@
 package br.com.fiscalwatch.fiscalservice.publication.messaging;
 
-import br.com.fiscalwatch.fiscalservice.publication.exception.PublicationAlreadyExistsException;
 import br.com.fiscalwatch.fiscalservice.publication.service.PublicationService;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
@@ -28,20 +27,11 @@ public class PublicationEventListener {
                 event.publication().source()
         );
 
-        try {
-            publicationService.create(event.publication());
+        publicationService.processEvent(event);
 
-            log.info(
-                    "Publicação processada com sucesso. externalId={}",
-                    event.publication().externalId()
-            );
-
-        } catch (PublicationAlreadyExistsException exception) {
-
-            log.info(
-                    "Publicação já processada. Evento ignorado. externalId={}",
-                    event.publication().externalId()
-            );
-        }
+        log.info(
+                "Publicação processada com sucesso. externalId={}",
+                event.publication().externalId()
+        );
     }
 }

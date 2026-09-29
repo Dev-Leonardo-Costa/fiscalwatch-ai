@@ -13,6 +13,8 @@ public record PublicationEvent(
         @JsonProperty("occurred_at")
         LocalDateTime occurredAt,
 
-        PublicationRequest publication
+        PublicationRequest publication,
+
+        PublicationDocumentEvent document
 ) {
 }

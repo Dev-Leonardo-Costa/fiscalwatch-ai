@@ -2,7 +2,6 @@ package br.com.fiscalwatch.fiscalservice;
 
 import br.com.fiscalwatch.fiscalservice.publication.dto.PublicationRequest;
 import br.com.fiscalwatch.fiscalservice.publication.enums.DocumentType;
-import br.com.fiscalwatch.fiscalservice.publication.exception.PublicationAlreadyExistsException;
 import br.com.fiscalwatch.fiscalservice.publication.messaging.PublicationEvent;
 import br.com.fiscalwatch.fiscalservice.publication.messaging.PublicationEventListener;
 import br.com.fiscalwatch.fiscalservice.publication.service.PublicationService;
@@ -15,7 +14,6 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.time.LocalDateTime;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
-import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 
 @ExtendWith(MockitoExtension.class)
@@ -39,32 +37,30 @@ class PublicationEventListenerTest {
         PublicationEvent event = new PublicationEvent(
                 "publication.discovered",
                 LocalDateTime.now(),
-                publication
+                publication,
+                null
         );
 
         listener.consume(event);
 
-        verify(publicationService).create(publication);
+        verify(publicationService).processEvent(event);
     }
 
     @Test
-    void deveIgnorarPublicacaoJaProcessada() {
+    void deveAceitarEventoAntigoSemDocumento() {
 
         PublicationRequest publication = criarPublicacao();
 
         PublicationEvent event = new PublicationEvent(
                 "publication.discovered",
                 LocalDateTime.now(),
-                publication
+                publication,
+                null
         );
-
-        doThrow(new PublicationAlreadyExistsException(publication.externalId()))
-                .when(publicationService)
-                .create(publication);
 
         assertDoesNotThrow(() -> listener.consume(event));
 
-        verify(publicationService).create(publication);
+        verify(publicationService).processEvent(event);
     }
 
     private PublicationRequest criarPublicacao() {
