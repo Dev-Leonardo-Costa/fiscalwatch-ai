@@ -1,9 +1,13 @@
+import hashlib
+import re
+from urllib.parse import urldefrag
+
 import httpx
 
 from bs4 import BeautifulSoup
 from datetime import datetime
 from app.model.publication import Publication
-from datetime import datetime, timedelta
+from app.model.publication_document import PublicationDocument
 from app.service.publication_identity_service import generate_external_id
 
 
@@ -12,6 +16,8 @@ RECEITA_RTC_URL = (
     "acesso-a-informacao/acoes-e-programas/"
     "programas-e-atividades/reforma-tributaria-do-consumo"
 )
+SOURCE = "RECEITA_FEDERAL"
+HTML_EXTRACTOR_VERSION = "receita-html-v1"
 
 
 def fetch_receita_page() -> str:
@@ -106,68 +112,209 @@ def fetch_news_page(url: str) -> str:
 def inspect_news_page(url: str) -> dict:
 
     html = fetch_news_page(url)
+
+    return inspect_news_html(html)
+
+
+def inspect_news_html(html: str) -> dict:
     soup = BeautifulSoup(html, "html.parser")
 
-    title_element = soup.find("h1")
+    title_element = soup.select_one("h1.documentFirstHeading")
 
-    published_element = soup.select_one(
-        "span.documentPublished"
+    if not title_element:
+        title_element = soup.find("h1")
+
+    description = extract_description(soup)
+
+    published_at = parse_govbr_datetime(
+        soup.select_one("span.documentPublished"),
+        "Publicado em "
     )
 
-    content_element = soup.select_one(
-        "div[property='rnews:articleBody']"
+    modified_at = parse_govbr_datetime(
+        soup.select_one("span.documentModified"),
+        "Atualizado em "
     )
 
-    published_at = None
-
-    if published_element:
-        published_text = published_element.get_text(
-            " ",
-            strip=True
-        )
-
-        published_text = published_text.replace(
-            "Publicado em ",
-            ""
-        )
-
-        published_at = datetime.strptime(
-            published_text,
-            "%d/%m/%Y %Hh%M"
-        )
+    content_text = extract_main_content_text(soup)
 
     return {
         "title": (
-            title_element.get_text(" ", strip=True)
+            normalize_text(title_element.get_text(" ", strip=True))
             if title_element
             else None
         ),
         "published_at": published_at,
-        "content": (
-            content_element.get_text(" ", strip=True)
-            if content_element
-            else None
-        )
+        "modified_at": modified_at,
+        "description": description,
+        "content": content_text
     }
 
 
-def parse_news_publication(url: str) -> Publication:
+def parse_govbr_datetime(element, prefix: str):
+    if not element:
+        return None
 
-    data = inspect_news_page(url)
+    date_text = element.get_text(
+            " ",
+            strip=True
+    )
+
+    date_text = date_text.replace(
+        prefix,
+        ""
+    ).strip()
+
+    return datetime.strptime(
+        date_text,
+        "%d/%m/%Y %Hh%M"
+    )
+
+
+def extract_description(soup: BeautifulSoup) -> str | None:
+    description_selectors = [
+        "div.documentDescription",
+        "p.documentDescription",
+        "[property='rnews:description']",
+        "meta[name='description']"
+    ]
+
+    for selector in description_selectors:
+        element = soup.select_one(selector)
+
+        if not element:
+            continue
+
+        if element.name == "meta":
+            description = element.get("content")
+        else:
+            description = element.get_text(
+                " ",
+                strip=True
+            )
+
+        if description:
+            return normalize_text(description)
+
+    return None
+
+
+def extract_main_content_text(soup: BeautifulSoup) -> str | None:
+    content_selectors = [
+        "div[property='rnews:articleBody']",
+        "#parent-fieldname-text",
+        "main article"
+    ]
+
+    for selector in content_selectors:
+        element = soup.select_one(selector)
+
+        if not element:
+            continue
+
+        text = normalize_text(
+            element.get_text(
+                "\n",
+                strip=True
+            )
+        )
+
+        if text:
+            return text
+
+    return None
+
+
+def normalize_text(text: str) -> str:
+    text = re.sub(r"[ \t]+", " ", text)
+    text = re.sub(r" *\n *", "\n", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+
+    return text.strip()
+
+
+def canonicalize_url(url: str) -> str:
+    url_without_fragment, _fragment = urldefrag(url)
+
+    return url_without_fragment.strip()
+
+
+def parse_news_publication_from_html(
+    html: str,
+    url: str
+) -> Publication:
+
+    canonical_url = canonicalize_url(url)
+    data = inspect_news_html(html)
 
     external_id = generate_external_id(
-        source="RECEITA_FEDERAL",
-        source_identifier=url
+        source=SOURCE,
+        source_identifier=canonical_url
     )
 
     return Publication(
         external_id=external_id,
-        source="RECEITA_FEDERAL",
+        source=SOURCE,
         title=data["title"],
         document_type="NOTICIA",
         published_at=data["published_at"],
-        description=data["content"],
-        download_url=url
+        modified_at=data["modified_at"],
+        description=data["description"],
+        download_url=canonical_url
+    )
+
+
+def build_publication_document_from_html(
+    html: str,
+    source_url: str
+) -> PublicationDocument:
+
+    soup = BeautifulSoup(html, "html.parser")
+    content_text = extract_main_content_text(soup)
+    extracted_at = datetime.now()
+
+    if not content_text:
+        return PublicationDocument(
+            source_url=canonicalize_url(source_url),
+            content_text="",
+            content_length=0,
+            extraction_status="EMPTY",
+            extraction_error=None,
+            extractor_version=HTML_EXTRACTOR_VERSION,
+            extracted_at=extracted_at
+        )
+
+    return PublicationDocument(
+        source_url=canonicalize_url(source_url),
+        content_text=content_text,
+        content_hash=hashlib.sha256(
+            content_text.encode("utf-8")
+        ).hexdigest(),
+        content_length=len(content_text),
+        extraction_status="EXTRACTED",
+        extraction_error=None,
+        extractor_version=HTML_EXTRACTOR_VERSION,
+        extracted_at=extracted_at
+    )
+
+
+def extract_news_document(url: str) -> PublicationDocument:
+    canonical_url = canonicalize_url(url)
+    html = fetch_news_page(canonical_url)
+
+    return build_publication_document_from_html(
+        html=html,
+        source_url=canonical_url
+    )
+
+
+def parse_news_publication(url: str) -> Publication:
+
+    html = fetch_news_page(url)
+
+    return parse_news_publication_from_html(
+        html=html,
+        url=url
     )
 
 

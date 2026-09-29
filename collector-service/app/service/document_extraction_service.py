@@ -4,6 +4,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from app.collectors import svrs_collector
+from app.collectors import receita_collector
 from app.model.publication import Publication
 from app.model.publication_document import PublicationDocument
 
@@ -14,6 +15,9 @@ EXTRACTOR_VERSION = "svrs-pypdf-v1"
 def extract_publication_document(
     publication: Publication
 ) -> PublicationDocument:
+    if publication.source == "RECEITA_FEDERAL":
+        return _extract_receita_html_document(publication)
+
     if not publication.download_url:
         return PublicationDocument(
             source_url=None,
@@ -88,3 +92,26 @@ def _safe_error_message(exception: Exception) -> str:
         message = exception.__class__.__name__
 
     return message[:200]
+
+
+def _extract_receita_html_document(
+    publication: Publication
+) -> PublicationDocument:
+    if not publication.download_url:
+        return PublicationDocument(
+            source_url=None,
+            extraction_status="PENDING"
+        )
+
+    try:
+        return receita_collector.extract_news_document(
+            publication.download_url
+        )
+    except Exception as exception:
+        return PublicationDocument(
+            source_url=publication.download_url,
+            extraction_status="FAILED",
+            extraction_error=_safe_error_message(exception),
+            extractor_version=receita_collector.HTML_EXTRACTOR_VERSION,
+            extracted_at=datetime.now()
+        )

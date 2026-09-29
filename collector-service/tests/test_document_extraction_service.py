@@ -162,6 +162,50 @@ def test_deve_retornar_failed_quando_extracao_falhar(
     assert pdf_path.exists() is False
 
 
+def test_deve_extrair_html_da_receita_sem_usar_fluxo_pdf(monkeypatch):
+    publication = Publication(
+        external_id="b" * 64,
+        source="RECEITA_FEDERAL",
+        title="Receita Federal publica nova documentacao tecnica",
+        document_type="NOTICIA",
+        published_at=datetime.now(),
+        download_url="https://www.gov.br/receitafederal/noticia"
+    )
+
+    monkeypatch.setattr(
+        document_extraction_service.receita_collector,
+        "extract_news_document",
+        lambda url: document_extraction_service.PublicationDocument(
+            source_url=url,
+            content_text="Texto HTML normalizado",
+            content_hash=hashlib.sha256(
+                "Texto HTML normalizado".encode("utf-8")
+            ).hexdigest(),
+            content_length=len("Texto HTML normalizado"),
+            extraction_status="EXTRACTED",
+            extractor_version="receita-html-v1",
+            extracted_at=datetime.now()
+        )
+    )
+
+    def falhar_se_usar_pdf(_url, _filename):
+        raise AssertionError("Fluxo PDF nao deve ser usado para Receita")
+
+    monkeypatch.setattr(
+        document_extraction_service.svrs_collector,
+        "download_document",
+        falhar_se_usar_pdf
+    )
+
+    document = document_extraction_service.extract_publication_document(
+        publication
+    )
+
+    assert document.extraction_status == "EXTRACTED"
+    assert document.content_text == "Texto HTML normalizado"
+    assert document.extractor_version == "receita-html-v1"
+
+
 def criar_publicacao(download_url: str | None) -> Publication:
     return Publication(
         external_id="a" * 64,
