@@ -112,6 +112,34 @@ class RuleBasedImpactAnalyzerTest {
     }
 
     @Test
+    void deveUsarMatchDoMotorDeRegrasParaResultadoEspecifico() {
+
+        PublicationAnalysisInput input = criarInput(
+                "Nota Técnica 2026.009",
+                null,
+                criarDocumento(
+                        ExtractionStatus.EXTRACTED,
+                        "https://example.com/documento.pdf",
+                        "A publicação altera regra de validação de CFOP "
+                                + "aplicada à NF-e."
+                )
+        );
+
+        ImpactAnalysisResult result = analyzer.analyze(input);
+
+        assertEquals(
+                "Revisar regra de validação de CFOP",
+                result.technicalImpacts().get(0).title()
+        );
+        assertEquals("NF-e", result.technicalImpacts().get(0).affectedComponent());
+        assertEquals(
+                "Revisar validação de CFOP",
+                result.actionItems().get(0).title()
+        );
+        assertTrue(result.evidences().get(0).excerpt().contains("CFOP"));
+    }
+
+    @Test
     void deveGerarEvidenceDocumentalQuandoRegraEstiverNoContentText() {
 
         String contentText = "A".repeat(120)

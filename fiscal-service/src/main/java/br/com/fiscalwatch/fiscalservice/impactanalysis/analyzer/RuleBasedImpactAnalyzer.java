@@ -1,9 +1,15 @@
 package br.com.fiscalwatch.fiscalservice.impactanalysis.analyzer;
 
+import br.com.fiscalwatch.fiscalservice.impactanalysis.analyzer.rules.CfopValidationRule;
+import br.com.fiscalwatch.fiscalservice.impactanalysis.analyzer.rules.DocumentContext;
+import br.com.fiscalwatch.fiscalservice.impactanalysis.analyzer.rules.EnvironmentDeadlineRule;
+import br.com.fiscalwatch.fiscalservice.impactanalysis.analyzer.rules.FiscalRuleEngine;
+import br.com.fiscalwatch.fiscalservice.impactanalysis.analyzer.rules.NegationDetector;
+import br.com.fiscalwatch.fiscalservice.impactanalysis.analyzer.rules.RuleMatch;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.enums.ImpactLevel;
-import br.com.fiscalwatch.fiscalservice.publication.enums.ExtractionStatus;
 import org.springframework.stereotype.Component;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Locale;
 
@@ -13,7 +19,8 @@ public class RuleBasedImpactAnalyzer implements ImpactAnalyzer {
     private static final int EVIDENCE_CONTEXT_CHARS = 80;
     private static final List<String> HIGH_IMPACT_TERMS = List.of(
             "schema",
-            "layout"
+            "layout",
+            "leiaute"
     );
     private static final List<String> MEDIUM_IMPACT_TERMS = List.of(
             "prazo",
@@ -21,19 +28,87 @@ public class RuleBasedImpactAnalyzer implements ImpactAnalyzer {
             "homologação"
     );
 
+    private final FiscalRuleEngine fiscalRuleEngine;
+    private final NegationDetector negationDetector;
+
+    public RuleBasedImpactAnalyzer() {
+        this(new FiscalRuleEngine(List.of(
+                new CfopValidationRule(),
+                new EnvironmentDeadlineRule()
+        )));
+    }
+
+    RuleBasedImpactAnalyzer(FiscalRuleEngine fiscalRuleEngine) {
+        this.fiscalRuleEngine = fiscalRuleEngine;
+        this.negationDetector = new NegationDetector();
+    }
+
     @Override
     public ImpactAnalysisResult analyze(PublicationAnalysisInput publication) {
 
-        ImpactLevel impactLevel = resolveImpactLevel(publication);
+        DocumentContext context = DocumentContext.from(publication);
+        List<RuleMatch> matches = fiscalRuleEngine.evaluate(context);
+        ImpactLevel impactLevel = resolveImpactLevel(context);
         String summary = "Analise baseada em regras para a publicacao: "
                 + publication.title();
-        EvidenceResult evidence = resolveEvidence(publication);
+        LocalDateTime homologationDeadline = firstHomologationDeadline(
+                matches
+        );
+        LocalDateTime productionDeadline = firstProductionDeadline(matches);
+        List<RuleMatch> contentMatches = matches.stream()
+                .filter(RuleMatch::hasImpactContent)
+                .toList();
+
+        if (contentMatches.isEmpty()) {
+            return fallbackResult(
+                    publication,
+                    context,
+                    impactLevel,
+                    summary,
+                    homologationDeadline,
+                    productionDeadline
+            );
+        }
 
         return new ImpactAnalysisResult(
                 summary,
                 impactLevel,
-                null,
-                null,
+                homologationDeadline,
+                productionDeadline,
+                contentMatches.stream()
+                        .flatMap(match -> match.technicalImpacts().stream())
+                        .map(technicalImpact -> withImpactLevel(
+                                technicalImpact,
+                                impactLevel
+                        ))
+                        .toList(),
+                contentMatches.stream()
+                        .flatMap(match -> match.actionItems().stream())
+                        .map(actionItem -> withPriority(
+                                actionItem,
+                                impactLevel
+                        ))
+                        .toList(),
+                contentMatches.stream()
+                        .flatMap(match -> match.evidences().stream())
+                        .toList()
+        );
+    }
+
+    private ImpactAnalysisResult fallbackResult(
+            PublicationAnalysisInput publication,
+            DocumentContext context,
+            ImpactLevel impactLevel,
+            String summary,
+            LocalDateTime homologationDeadline,
+            LocalDateTime productionDeadline
+    ) {
+
+        return new ImpactAnalysisResult(
+                summary,
+                impactLevel,
+                homologationDeadline,
+                productionDeadline,
                 List.of(new TechnicalImpactResult(
                         "Revisar impacto tecnico da publicacao",
                         "A publicacao deve ser revisada para identificar "
@@ -52,29 +127,35 @@ public class RuleBasedImpactAnalyzer implements ImpactAnalyzer {
                         impactLevel,
                         null
                 )),
-                List.of(evidence)
+                List.of(resolveFallbackEvidence(publication, context))
         );
     }
 
-    private ImpactLevel resolveImpactLevel(PublicationAnalysisInput publication) {
+    private ImpactLevel resolveImpactLevel(DocumentContext context) {
 
-        String text = analyzableText(publication)
-                .toLowerCase(Locale.ROOT);
+        String text = context.analyzableText();
+        String lowerText = text.toLowerCase(Locale.ROOT);
 
-        if (containsAny(text, HIGH_IMPACT_TERMS)) {
+        if (containsNonNegatedTerm(text, lowerText, HIGH_IMPACT_TERMS)) {
             return ImpactLevel.HIGH;
         }
 
-        if (containsAny(text, MEDIUM_IMPACT_TERMS)) {
+        if (containsAny(lowerText, MEDIUM_IMPACT_TERMS)) {
             return ImpactLevel.MEDIUM;
         }
 
         return ImpactLevel.LOW;
     }
 
-    private EvidenceResult resolveEvidence(PublicationAnalysisInput publication) {
+    private EvidenceResult resolveFallbackEvidence(
+            PublicationAnalysisInput publication,
+            DocumentContext context
+    ) {
 
-        EvidenceResult documentEvidence = resolveDocumentEvidence(publication);
+        EvidenceResult documentEvidence = resolveLegacyDocumentEvidence(
+                publication,
+                context
+        );
 
         if (documentEvidence != null) {
             return documentEvidence;
@@ -91,15 +172,16 @@ public class RuleBasedImpactAnalyzer implements ImpactAnalyzer {
         );
     }
 
-    private EvidenceResult resolveDocumentEvidence(
-            PublicationAnalysisInput publication
+    private EvidenceResult resolveLegacyDocumentEvidence(
+            PublicationAnalysisInput publication,
+            DocumentContext context
     ) {
 
-        if (!hasExtractedDocumentText(publication)) {
+        if (!context.documentExtracted()) {
             return null;
         }
 
-        String contentText = publication.document().contentText();
+        String contentText = context.documentContentText();
         RuleOccurrence occurrence = findRuleOccurrence(contentText);
 
         if (occurrence == null) {
@@ -119,7 +201,7 @@ public class RuleBasedImpactAnalyzer implements ImpactAnalyzer {
 
         return new EvidenceResult(
                 publication.title(),
-                resolveDocumentSourceUrl(publication),
+                context.documentSourceUrlOrFallback(),
                 null,
                 null,
                 contentText.substring(startPosition, endPosition),
@@ -128,36 +210,12 @@ public class RuleBasedImpactAnalyzer implements ImpactAnalyzer {
         );
     }
 
-    private String analyzableText(PublicationAnalysisInput publication) {
-
-        StringBuilder text = new StringBuilder();
-
-        appendIfNotBlank(text, publication.title());
-        appendIfNotBlank(text, publication.description());
-
-        if (hasExtractedDocumentText(publication)) {
-            appendIfNotBlank(text, publication.document().contentText());
-        }
-
-        return text.toString();
-    }
-
-    private boolean hasExtractedDocumentText(
-            PublicationAnalysisInput publication
-    ) {
-
-        return publication.document() != null
-                && publication.document().extractionStatus()
-                        == ExtractionStatus.EXTRACTED
-                && publication.document().contentText() != null
-                && !publication.document().contentText().isBlank();
-    }
-
     private RuleOccurrence findRuleOccurrence(String text) {
 
         String lowerText = text.toLowerCase(Locale.ROOT);
 
-        RuleOccurrence highImpactOccurrence = findFirstOccurrence(
+        RuleOccurrence highImpactOccurrence = findFirstNonNegatedOccurrence(
+                text,
                 lowerText,
                 HIGH_IMPACT_TERMS
         );
@@ -167,6 +225,34 @@ public class RuleBasedImpactAnalyzer implements ImpactAnalyzer {
         }
 
         return findFirstOccurrence(lowerText, MEDIUM_IMPACT_TERMS);
+    }
+
+    private RuleOccurrence findFirstNonNegatedOccurrence(
+            String originalText,
+            String lowerText,
+            List<String> terms
+    ) {
+
+        RuleOccurrence firstOccurrence = null;
+
+        for (String term : terms) {
+            int position = lowerText.indexOf(term);
+
+            if (position < 0
+                    || negationDetector.isNegatedAt(
+                            originalText,
+                            position
+                    )) {
+                continue;
+            }
+
+            if (firstOccurrence == null
+                    || position < firstOccurrence.position()) {
+                firstOccurrence = new RuleOccurrence(term, position);
+            }
+        }
+
+        return firstOccurrence;
     }
 
     private RuleOccurrence findFirstOccurrence(
@@ -192,22 +278,39 @@ public class RuleBasedImpactAnalyzer implements ImpactAnalyzer {
         return firstOccurrence;
     }
 
+    private boolean containsNonNegatedTerm(
+            String originalText,
+            String lowerText,
+            List<String> terms
+    ) {
+
+        return terms.stream().anyMatch(term -> {
+            int position = lowerText.indexOf(term);
+
+            return position >= 0
+                    && !negationDetector.isNegatedAt(originalText, position);
+        });
+    }
+
     private boolean containsAny(String text, List<String> terms) {
 
         return terms.stream().anyMatch(text::contains);
     }
 
-    private String resolveDocumentSourceUrl(
-            PublicationAnalysisInput publication
-    ) {
+    private LocalDateTime firstHomologationDeadline(List<RuleMatch> matches) {
+        return matches.stream()
+                .map(RuleMatch::homologationDeadline)
+                .filter(deadline -> deadline != null)
+                .findFirst()
+                .orElse(null);
+    }
 
-        String sourceUrl = publication.document().sourceUrl();
-
-        if (sourceUrl != null && !sourceUrl.isBlank()) {
-            return sourceUrl;
-        }
-
-        return publication.downloadUrl();
+    private LocalDateTime firstProductionDeadline(List<RuleMatch> matches) {
+        return matches.stream()
+                .map(RuleMatch::productionDeadline)
+                .filter(deadline -> deadline != null)
+                .findFirst()
+                .orElse(null);
     }
 
     private String resolveFallbackEvidenceExcerpt(
@@ -222,17 +325,32 @@ public class RuleBasedImpactAnalyzer implements ImpactAnalyzer {
         return publication.title();
     }
 
-    private void appendIfNotBlank(StringBuilder text, String value) {
+    private TechnicalImpactResult withImpactLevel(
+            TechnicalImpactResult technicalImpact,
+            ImpactLevel impactLevel
+    ) {
 
-        if (value == null || value.isBlank()) {
-            return;
-        }
+        return new TechnicalImpactResult(
+                technicalImpact.title(),
+                technicalImpact.description(),
+                technicalImpact.affectedArea(),
+                technicalImpact.affectedComponent(),
+                impactLevel
+        );
+    }
 
-        if (!text.isEmpty()) {
-            text.append(' ');
-        }
+    private ActionItemResult withPriority(
+            ActionItemResult actionItem,
+            ImpactLevel priority
+    ) {
 
-        text.append(value);
+        return new ActionItemResult(
+                actionItem.title(),
+                actionItem.description(),
+                actionItem.targetProfessionalProfile(),
+                priority,
+                actionItem.dueAt()
+        );
     }
 
     private record RuleOccurrence(String term, int position) {
