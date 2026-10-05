@@ -9,6 +9,8 @@ from app.collectors.receita_collector import parse_news_publication
 from app.collectors.receita_collector import get_news_publications
 from app.service.publication_service import filter_recent_publications
 from app.service.publication_dispatch_service import (
+    dispatch_receita_publication_by_external_id,
+    dispatch_receita_publications,
     dispatch_svrs_publication_by_external_id,
     dispatch_svrs_publications
 )
@@ -231,6 +233,24 @@ def dispatch_svrs():
 @app.post("/dispatch/svrs/publications/{external_id}")
 def dispatch_svrs_publication(external_id: str):
     result = dispatch_svrs_publication_by_external_id(external_id)
+
+    if result["status"] == "NOT_FOUND":
+        raise HTTPException(
+            status_code=404,
+            detail=result
+        )
+
+    return result
+
+
+@app.post("/dispatch/receita")
+def dispatch_receita():
+    return dispatch_receita_publications()
+
+
+@app.post("/dispatch/receita/publications/{external_id}")
+def dispatch_receita_publication(external_id: str):
+    result = dispatch_receita_publication_by_external_id(external_id)
 
     if result["status"] == "NOT_FOUND":
         raise HTTPException(

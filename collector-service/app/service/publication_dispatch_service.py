@@ -1,5 +1,6 @@
 from datetime import datetime
 
+from app.collectors.receita_collector import get_news_publications
 from app.collectors.svrs_collector import get_publications
 from app.messaging.publication_event_publisher import publish_publication_event
 from app.model.publication_document import PublicationDocument
@@ -73,9 +74,48 @@ def dispatch_svrs_publication_by_external_id(external_id: str) -> dict:
     return dispatch_publication(publication)
 
 
+def dispatch_receita_publications() -> dict:
+    publications = get_news_publications()
+
+    published = 0
+
+    for publication in publications:
+        dispatch_publication(publication)
+        published += 1
+
+    return {
+        "source": "RECEITA_FEDERAL",
+        "collected": len(publications),
+        "published": published
+    }
+
+
+def dispatch_receita_publication_by_external_id(external_id: str) -> dict:
+    publications = get_news_publications()
+
+    publication = next(
+        (
+            publication
+            for publication in publications
+            if publication.external_id == external_id
+        ),
+        None
+    )
+
+    if publication is None:
+        return {
+            "source": "RECEITA_FEDERAL",
+            "status": "NOT_FOUND",
+            "published": 0,
+            "external_id": external_id
+        }
+
+    return dispatch_publication(publication)
+
+
 def _dispatch_result(publication, document: PublicationDocument) -> dict:
     return {
-        "source": "SVRS",
+        "source": publication.source,
         "status": "PUBLISHED",
         "published": 1,
         "publication": {
