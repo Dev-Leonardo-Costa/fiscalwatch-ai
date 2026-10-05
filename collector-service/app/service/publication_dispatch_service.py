@@ -1,5 +1,6 @@
 from datetime import datetime
 
+from app.collectors.cgibs_collector import get_cgibs_technical_publications
 from app.collectors.receita_collector import get_news_publications
 from app.collectors.svrs_collector import get_publications
 from app.messaging.publication_event_publisher import publish_publication_event
@@ -105,6 +106,45 @@ def dispatch_receita_publication_by_external_id(external_id: str) -> dict:
     if publication is None:
         return {
             "source": "RECEITA_FEDERAL",
+            "status": "NOT_FOUND",
+            "published": 0,
+            "external_id": external_id
+        }
+
+    return dispatch_publication(publication)
+
+
+def dispatch_cgibs_publications() -> dict:
+    publications = get_cgibs_technical_publications()
+
+    published = 0
+
+    for publication in publications:
+        dispatch_publication(publication)
+        published += 1
+
+    return {
+        "source": "CGIBS",
+        "collected": len(publications),
+        "published": published
+    }
+
+
+def dispatch_cgibs_publication_by_external_id(external_id: str) -> dict:
+    publications = get_cgibs_technical_publications()
+
+    publication = next(
+        (
+            publication
+            for publication in publications
+            if publication.external_id == external_id
+        ),
+        None
+    )
+
+    if publication is None:
+        return {
+            "source": "CGIBS",
             "status": "NOT_FOUND",
             "published": 0,
             "external_id": external_id

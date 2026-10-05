@@ -426,6 +426,204 @@ def test_dispatch_receita_unitario_external_id_inexistente_nao_publica(
     assert publicacoes_despachadas == []
 
 
+def test_deve_publicar_evento_para_cada_publicacao_cgibs(monkeypatch):
+    primeira_publicacao = criar_publicacao_cgibs(
+        external_id="o" * 64,
+        title="Declaração de Regimes Específicos (DeRE)",
+        download_url=(
+            "https://www.cgibs.gov.br/"
+            "declaracao-de-regimes-especificos-dere"
+        )
+    )
+    segunda_publicacao = criar_publicacao_cgibs(
+        external_id="p" * 64,
+        title="Documento técnico CGIBS",
+        download_url="https://www.cgibs.gov.br/documento-tecnico"
+    )
+    eventos_publicados = []
+
+    monkeypatch.setattr(
+        publication_dispatch_service,
+        "get_cgibs_technical_publications",
+        lambda: [primeira_publicacao, segunda_publicacao],
+        raising=False
+    )
+    monkeypatch.setattr(
+        publication_dispatch_service,
+        "publish_publication_event",
+        eventos_publicados.append
+    )
+    monkeypatch.setattr(
+        publication_dispatch_service,
+        "extract_publication_document",
+        lambda publication: PublicationDocument(
+            source_url=(
+                "https://www.cgibs.gov.br/upload/"
+                f"{publication.external_id}.pdf"
+            ),
+            content_text=f"Documento CGIBS {publication.external_id}",
+            content_length=len(
+                f"Documento CGIBS {publication.external_id}"
+            ),
+            content_hash=f"hash-{publication.external_id[:1]}",
+            extraction_status="EXTRACTED",
+            extractor_version="cgibs-pypdf-v1",
+            extracted_at=datetime.now()
+        )
+    )
+
+    resultado = publication_dispatch_service.dispatch_cgibs_publications()
+
+    assert resultado == {
+        "source": "CGIBS",
+        "collected": 2,
+        "published": 2
+    }
+    assert len(eventos_publicados) == 2
+    assert eventos_publicados[0].event_type == PUBLICATION_DISCOVERED
+    assert eventos_publicados[0].publication == primeira_publicacao
+    assert eventos_publicados[0].publication.source == "CGIBS"
+    assert eventos_publicados[0].document.extractor_version == (
+        "cgibs-pypdf-v1"
+    )
+    assert eventos_publicados[1].event_type == PUBLICATION_DISCOVERED
+    assert eventos_publicados[1].publication == segunda_publicacao
+    assert eventos_publicados[1].publication.source == "CGIBS"
+    assert eventos_publicados[1].document.extraction_status == "EXTRACTED"
+
+
+def test_deve_retornar_zero_quando_nao_houver_publicacoes_cgibs(
+    monkeypatch
+):
+    eventos_publicados = []
+
+    monkeypatch.setattr(
+        publication_dispatch_service,
+        "get_cgibs_technical_publications",
+        lambda: [],
+        raising=False
+    )
+    monkeypatch.setattr(
+        publication_dispatch_service,
+        "publish_publication_event",
+        eventos_publicados.append
+    )
+
+    resultado = publication_dispatch_service.dispatch_cgibs_publications()
+
+    assert resultado == {
+        "source": "CGIBS",
+        "collected": 0,
+        "published": 0
+    }
+    assert eventos_publicados == []
+
+
+def test_dispatch_cgibs_unitario_encontra_publicacao_correta(monkeypatch):
+    primeira_publicacao = criar_publicacao_cgibs(
+        external_id="q" * 64,
+        title="Declaração de Regimes Específicos (DeRE)",
+        download_url=(
+            "https://www.cgibs.gov.br/"
+            "declaracao-de-regimes-especificos-dere"
+        )
+    )
+    segunda_publicacao = criar_publicacao_cgibs(
+        external_id="r" * 64,
+        title="Outro documento CGIBS",
+        download_url="https://www.cgibs.gov.br/outro-documento"
+    )
+    eventos_publicados = []
+
+    monkeypatch.setattr(
+        publication_dispatch_service,
+        "get_cgibs_technical_publications",
+        lambda: [primeira_publicacao, segunda_publicacao],
+        raising=False
+    )
+    monkeypatch.setattr(
+        publication_dispatch_service,
+        "extract_publication_document",
+        lambda publication: PublicationDocument(
+            source_url="https://www.cgibs.gov.br/upload/regras.pdf",
+            content_text="Texto tecnico CGIBS",
+            content_length=len("Texto tecnico CGIBS"),
+            content_hash="hash-cgibs",
+            extraction_status="EXTRACTED",
+            extractor_version="cgibs-pypdf-v1",
+            extracted_at=datetime.now()
+        )
+    )
+    monkeypatch.setattr(
+        publication_dispatch_service,
+        "publish_publication_event",
+        eventos_publicados.append
+    )
+
+    resultado = (
+        publication_dispatch_service
+        .dispatch_cgibs_publication_by_external_id(
+            primeira_publicacao.external_id
+        )
+    )
+
+    assert resultado["source"] == "CGIBS"
+    assert resultado["status"] == "PUBLISHED"
+    assert resultado["published"] == 1
+    assert resultado["publication"]["external_id"] == (
+        primeira_publicacao.external_id
+    )
+    assert resultado["document"]["extraction_status"] == "EXTRACTED"
+    assert resultado["document"]["extractor_version"] == "cgibs-pypdf-v1"
+    assert "content_text" not in resultado["document"]
+    assert len(eventos_publicados) == 1
+    assert eventos_publicados[0].event_type == PUBLICATION_DISCOVERED
+    assert eventos_publicados[0].publication == primeira_publicacao
+    assert eventos_publicados[0].publication.source == "CGIBS"
+    assert eventos_publicados[0].document.content_text == (
+        "Texto tecnico CGIBS"
+    )
+
+
+def test_dispatch_cgibs_unitario_external_id_inexistente_nao_publica(
+    monkeypatch
+):
+    publicacao = criar_publicacao_cgibs(
+        external_id="s" * 64,
+        title="Declaração de Regimes Específicos (DeRE)",
+        download_url=(
+            "https://www.cgibs.gov.br/"
+            "declaracao-de-regimes-especificos-dere"
+        )
+    )
+    eventos_publicados = []
+
+    monkeypatch.setattr(
+        publication_dispatch_service,
+        "get_cgibs_technical_publications",
+        lambda: [publicacao],
+        raising=False
+    )
+    monkeypatch.setattr(
+        publication_dispatch_service,
+        "publish_publication_event",
+        eventos_publicados.append
+    )
+
+    resultado = (
+        publication_dispatch_service
+        .dispatch_cgibs_publication_by_external_id("t" * 64)
+    )
+
+    assert resultado == {
+        "source": "CGIBS",
+        "status": "NOT_FOUND",
+        "published": 0,
+        "external_id": "t" * 64
+    }
+    assert eventos_publicados == []
+
+
 def criar_publicacao(
     external_id: str,
     title: str,
@@ -436,6 +634,21 @@ def criar_publicacao(
         source="SVRS",
         title=title,
         document_type="NOTA_TECNICA",
+        published_at=datetime.now(),
+        download_url=download_url
+    )
+
+
+def criar_publicacao_cgibs(
+    external_id: str,
+    title: str,
+    download_url: str
+) -> Publication:
+    return Publication(
+        external_id=external_id,
+        source="CGIBS",
+        title=title,
+        document_type="DOCUMENTO_TECNICO",
         published_at=datetime.now(),
         download_url=download_url
     )

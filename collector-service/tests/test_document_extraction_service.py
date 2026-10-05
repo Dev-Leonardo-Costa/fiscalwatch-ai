@@ -2,6 +2,7 @@ import hashlib
 from datetime import datetime
 from pathlib import Path
 
+from app.collectors import cgibs_collector
 from app.model.publication import Publication
 from app.service import document_extraction_service
 
@@ -206,12 +207,202 @@ def test_deve_extrair_html_da_receita_sem_usar_fluxo_pdf(monkeypatch):
     assert document.extractor_version == "receita-html-v1"
 
 
+def test_deve_gerar_publication_document_extraido_para_cgibs(
+    monkeypatch,
+    tmp_path
+):
+    aggregator_url = (
+        "https://www.cgibs.gov.br/declaracao-de-regimes-especificos-dere"
+    )
+    pdf_url = (
+        "https://www.cgibs.gov.br/upload/arquivos/"
+        "04-regras-de-validacao-v-1-3-0.pdf"
+    )
+    extracted_text = " Texto   extraido \n\n\n das regras "
+    normalized_text = "Texto extraido\ndas regras"
+    pdf_path = tmp_path / "regras-validacao.pdf"
+    pdf_path.write_bytes(b"%PDF")
+
+    monkeypatch.setattr(
+        cgibs_collector,
+        "parse_cgibs_technical_files",
+        lambda url: [
+            {
+                "title": (
+                    "04 Leiautes da DeRE Anexo II "
+                    "Regras de Validação (v 1 3 0)"
+                ),
+                "file_type": "PDF",
+                "url": pdf_url
+            }
+        ]
+    )
+    monkeypatch.setattr(
+        cgibs_collector,
+        "select_cgibs_main_technical_file",
+        lambda files: files[0]
+    )
+
+    def baixar_pdf(url, filename):
+        assert url == pdf_url
+        return str(pdf_path)
+
+    monkeypatch.setattr(
+        document_extraction_service.svrs_collector,
+        "download_document",
+        baixar_pdf
+    )
+    monkeypatch.setattr(
+        document_extraction_service.svrs_collector,
+        "extract_pdf_text",
+        lambda file_path: extracted_text
+    )
+    monkeypatch.setattr(
+        document_extraction_service.svrs_collector,
+        "normalize_text",
+        lambda text: normalized_text
+    )
+
+    publication = criar_publicacao_cgibs(download_url=aggregator_url)
+
+    document = document_extraction_service.extract_publication_document(
+        publication
+    )
+
+    assert document.extraction_status == "EXTRACTED"
+    assert document.source_url == pdf_url
+    assert document.content_text == normalized_text
+    assert document.content_hash == hashlib.sha256(
+        normalized_text.encode("utf-8")
+    ).hexdigest()
+    assert document.content_length == len(normalized_text)
+    assert document.extraction_error is None
+    assert document.extractor_version == "cgibs-pypdf-v1"
+    assert document.extracted_at is not None
+    assert pdf_path.exists() is False
+
+
+def test_deve_retornar_pending_para_cgibs_sem_pdf_tecnico_adequado(
+    monkeypatch
+):
+    aggregator_url = (
+        "https://www.cgibs.gov.br/declaracao-de-regimes-especificos-dere"
+    )
+
+    monkeypatch.setattr(
+        cgibs_collector,
+        "parse_cgibs_technical_files",
+        lambda url: [
+            {
+                "title": "06 Arquivos XSD Regras de Validação (v 1 3 0)",
+                "file_type": "ZIP",
+                "url": "https://www.cgibs.gov.br/upload/xsd.zip"
+            }
+        ]
+    )
+    monkeypatch.setattr(
+        cgibs_collector,
+        "select_cgibs_main_technical_file",
+        lambda files: None
+    )
+
+    def falhar_se_tentar_baixar(_url, _filename):
+        raise AssertionError("Nao deve baixar arquivo sem PDF selecionado")
+
+    monkeypatch.setattr(
+        document_extraction_service.svrs_collector,
+        "download_document",
+        falhar_se_tentar_baixar
+    )
+
+    publication = criar_publicacao_cgibs(download_url=aggregator_url)
+
+    document = document_extraction_service.extract_publication_document(
+        publication
+    )
+
+    assert document.extraction_status == "PENDING"
+    assert document.source_url is None
+    assert document.content_text is None
+    assert document.content_hash is None
+    assert document.content_length is None
+    assert document.extraction_error is None
+
+
+def test_deve_retornar_failed_para_cgibs_quando_download_ou_extracao_falhar(
+    monkeypatch
+):
+    aggregator_url = (
+        "https://www.cgibs.gov.br/declaracao-de-regimes-especificos-dere"
+    )
+    pdf_url = (
+        "https://www.cgibs.gov.br/upload/arquivos/"
+        "04-regras-de-validacao-v-1-3-0.pdf"
+    )
+
+    monkeypatch.setattr(
+        cgibs_collector,
+        "parse_cgibs_technical_files",
+        lambda url: [
+            {
+                "title": (
+                    "04 Leiautes da DeRE Anexo II "
+                    "Regras de Validação (v 1 3 0)"
+                ),
+                "file_type": "PDF",
+                "url": pdf_url
+            }
+        ]
+    )
+    monkeypatch.setattr(
+        cgibs_collector,
+        "select_cgibs_main_technical_file",
+        lambda files: files[0]
+    )
+
+    def falhar_download(url, filename):
+        assert url == pdf_url
+        raise RuntimeError("download cgibs indisponivel\nstack trace")
+
+    monkeypatch.setattr(
+        document_extraction_service.svrs_collector,
+        "download_document",
+        falhar_download
+    )
+
+    publication = criar_publicacao_cgibs(download_url=aggregator_url)
+
+    document = document_extraction_service.extract_publication_document(
+        publication
+    )
+
+    assert document.extraction_status == "FAILED"
+    assert document.source_url == pdf_url
+    assert document.content_text is None
+    assert document.content_hash is None
+    assert document.content_length is None
+    assert document.extraction_error == "download cgibs indisponivel"
+    assert document.extractor_version == "cgibs-pypdf-v1"
+    assert document.extracted_at is not None
+
+
 def criar_publicacao(download_url: str | None) -> Publication:
     return Publication(
         external_id="a" * 64,
         source="SVRS",
         title="Nota Técnica 2026.009 v1.00",
         document_type="NOTA_TECNICA",
+        published_at=datetime.now(),
+        download_url=download_url
+    )
+
+
+def criar_publicacao_cgibs(download_url: str | None) -> Publication:
+    return Publication(
+        external_id="c" * 64,
+        source="CGIBS",
+        title="Declaração de Regimes Específicos (DeRE)",
+        document_type="DOCUMENTO_TECNICO",
         published_at=datetime.now(),
         download_url=download_url
     )

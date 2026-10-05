@@ -1,3 +1,7 @@
+import re
+import unicodedata
+from urllib.parse import urljoin
+
 import httpx
 
 
@@ -294,8 +298,7 @@ def parse_cgibs_technical_files(url: str) -> list[dict]:
         ):
             continue
 
-        if href.startswith("/"):
-            href = f"{CGIBS_URL}{href}"
+        href = urljoin(url, href)
 
         file_type = (
             "PDF"
@@ -310,6 +313,50 @@ def parse_cgibs_technical_files(url: str) -> list[dict]:
         })
 
     return files
+
+
+def select_cgibs_main_technical_file(files: list[dict]) -> dict | None:
+    candidates = [
+        file
+        for file in files
+        if file.get("file_type") == "PDF"
+        and "regras de validacao" in _normalize_cgibs_file_title(
+            file.get("title", "")
+        )
+    ]
+
+    if not candidates:
+        return None
+
+    return max(
+        candidates,
+        key=lambda file: _extract_cgibs_file_version(
+            file.get("title", "")
+        )
+    )
+
+
+def _normalize_cgibs_file_title(title: str) -> str:
+    normalized = unicodedata.normalize("NFKD", title)
+    ascii_text = normalized.encode("ascii", "ignore").decode("ascii")
+
+    return ascii_text.lower()
+
+
+def _extract_cgibs_file_version(title: str) -> tuple[int, ...]:
+    match = re.search(
+        r"\bv\s*\.?\s*(\d+(?:\s+\d+)*)",
+        title,
+        flags=re.IGNORECASE
+    )
+
+    if not match:
+        return ()
+
+    return tuple(
+        int(part)
+        for part in match.group(1).split()
+    )
 
 
 def inspect_cgibs_dere_dates(url: str) -> list[str]:
@@ -369,6 +416,10 @@ def inspect_cgibs_dere_metadata(url: str) -> list[dict]:
     return metadata
 
 
+def _parse_cgibs_datetime(value: str) -> datetime:
+    return datetime.fromisoformat(value).replace(tzinfo=None)
+
+
 def parse_cgibs_document_metadata(url: str) -> dict:
 
     html = fetch_cgibs_document_page(url)
@@ -402,14 +453,14 @@ def parse_cgibs_document_metadata(url: str) -> dict:
             else None
         ),
         "published_at": (
-            datetime.fromisoformat(
+            _parse_cgibs_datetime(
                 published_element.get("content")
             )
             if published_element
             else None
         ),
         "modified_at": (
-            datetime.fromisoformat(
+            _parse_cgibs_datetime(
                 modified_element.get("content")
             )
             if modified_element

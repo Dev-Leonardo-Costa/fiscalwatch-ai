@@ -167,3 +167,100 @@ def test_endpoint_dispatch_receita_unitario_retorna_404_quando_nao_encontrado(
         "published": 0,
         "external_id": external_id
     }
+
+
+def test_endpoint_dispatch_cgibs_retorna_200(monkeypatch):
+    monkeypatch.setattr(
+        main,
+        "dispatch_cgibs_publications",
+        lambda: {
+            "source": "CGIBS",
+            "collected": 1,
+            "published": 1
+        },
+        raising=False
+    )
+
+    response = client.post("/dispatch/cgibs")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "source": "CGIBS",
+        "collected": 1,
+        "published": 1
+    }
+
+
+def test_endpoint_dispatch_cgibs_unitario_retorna_200(monkeypatch):
+    external_id = "e" * 64
+
+    monkeypatch.setattr(
+        main,
+        "dispatch_cgibs_publication_by_external_id",
+        lambda requested_external_id: {
+            "source": "CGIBS",
+            "status": "PUBLISHED",
+            "published": 1,
+            "publication": {
+                "external_id": requested_external_id,
+                "title": "Declaração de Regimes Específicos (DeRE)",
+                "download_url": (
+                    "https://www.cgibs.gov.br/"
+                    "declaracao-de-regimes-especificos-dere"
+                )
+            },
+            "document": {
+                "extraction_status": "EXTRACTED",
+                "content_length": 69119,
+                "content_hash": "hash-cgibs",
+                "extraction_error": None,
+                "extractor_version": "cgibs-pypdf-v1",
+                "extracted_at": "2026-10-05T19:01:20"
+            }
+        },
+        raising=False
+    )
+
+    response = client.post(
+        f"/dispatch/cgibs/publications/{external_id}"
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["source"] == "CGIBS"
+    assert payload["status"] == "PUBLISHED"
+    assert payload["published"] == 1
+    assert payload["publication"]["external_id"] == external_id
+    assert payload["document"]["extraction_status"] == "EXTRACTED"
+    assert payload["document"]["extractor_version"] == "cgibs-pypdf-v1"
+    assert "content_text" not in payload["document"]
+
+
+def test_endpoint_dispatch_cgibs_unitario_retorna_404_quando_nao_encontrado(
+    monkeypatch
+):
+    external_id = "f" * 64
+
+    monkeypatch.setattr(
+        main,
+        "dispatch_cgibs_publication_by_external_id",
+        lambda requested_external_id: {
+            "source": "CGIBS",
+            "status": "NOT_FOUND",
+            "published": 0,
+            "external_id": requested_external_id
+        },
+        raising=False
+    )
+
+    response = client.post(
+        f"/dispatch/cgibs/publications/{external_id}"
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == {
+        "source": "CGIBS",
+        "status": "NOT_FOUND",
+        "published": 0,
+        "external_id": external_id
+    }
