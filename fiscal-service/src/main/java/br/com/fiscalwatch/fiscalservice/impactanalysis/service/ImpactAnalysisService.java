@@ -6,17 +6,21 @@ import br.com.fiscalwatch.fiscalservice.impactanalysis.analyzer.ImpactAnalysisRe
 import br.com.fiscalwatch.fiscalservice.impactanalysis.analyzer.ImpactAnalyzer;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.analyzer.PublicationDocumentAnalysisInput;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.analyzer.PublicationAnalysisInput;
+import br.com.fiscalwatch.fiscalservice.impactanalysis.analyzer.SchemaChangeAnalysisInput;
+import br.com.fiscalwatch.fiscalservice.impactanalysis.analyzer.SchemaChangeImpactAnalyzer;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.analyzer.TechnicalImpactResult;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.dto.ActionItemRequest;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.dto.EvidenceRequest;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.dto.ImpactAnalysisRequest;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.dto.ImpactAnalysisResponse;
+import br.com.fiscalwatch.fiscalservice.impactanalysis.dto.SchemaComparisonRequest;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.dto.TechnicalImpactRequest;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.entity.ActionItem;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.entity.Evidence;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.entity.ImpactAnalysis;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.entity.TechnicalImpact;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.enums.AnalysisStatus;
+import br.com.fiscalwatch.fiscalservice.impactanalysis.enums.ImpactLevel;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.exception.ImpactAnalysisNotFoundException;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.mapper.ImpactAnalysisMapper;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.repository.ImpactAnalysisRepository;
@@ -36,11 +40,16 @@ import java.util.List;
 @Service
 public class ImpactAnalysisService {
 
+    private static final String AUTOMATIC_ANALYSIS_VERSION = "automatic-v1";
+    private static final String SCHEMA_COMPARISON_ANALYSIS_VERSION =
+            "schema-comparison-v1";
+
     private final ImpactAnalysisRepository impactAnalysisRepository;
     private final PublicationRepository publicationRepository;
     private final PublicationDocumentRepository publicationDocumentRepository;
     private final ImpactAnalysisMapper impactAnalysisMapper;
     private final ImpactAnalyzer impactAnalyzer;
+    private final SchemaChangeImpactAnalyzer schemaChangeImpactAnalyzer;
 
     @Transactional(readOnly = true)
     public ImpactAnalysisResponse findById(Long id) {
@@ -81,27 +90,20 @@ public class ImpactAnalysisService {
                         )
                 );
 
-        ImpactAnalysis impactAnalysis = new ImpactAnalysis();
-
-        impactAnalysis.setPublication(publication);
-        impactAnalysis.setSummary(request.summary());
-        impactAnalysis.setImpactLevel(request.impactLevel());
-        impactAnalysis.setStatus(AnalysisStatus.COMPLETED);
-        impactAnalysis.setAnalysisVersion(request.analysisVersion());
-        impactAnalysis.setHomologationDeadline(
-                request.homologationDeadline()
+        ImpactAnalysis impactAnalysis = newImpactAnalysis(
+                publication,
+                request.summary(),
+                request.impactLevel(),
+                request.analysisVersion(),
+                request.homologationDeadline(),
+                request.productionDeadline()
         );
-        impactAnalysis.setProductionDeadline(request.productionDeadline());
-        impactAnalysis.setAnalyzedAt(LocalDateTime.now());
 
         addTechnicalImpacts(impactAnalysis, request.technicalImpacts());
         addActionItems(impactAnalysis, request.actionItems());
         addEvidences(impactAnalysis, request.evidences());
 
-        ImpactAnalysis savedImpactAnalysis =
-                impactAnalysisRepository.save(impactAnalysis);
-
-        return impactAnalysisMapper.toResponse(savedImpactAnalysis);
+        return saveAndMap(impactAnalysis);
     }
 
     @Transactional
@@ -125,18 +127,87 @@ public class ImpactAnalysisService {
         );
         ImpactAnalysisResult result = impactAnalyzer.analyze(input);
 
-        ImpactAnalysis impactAnalysis = new ImpactAnalysis();
-
-        impactAnalysis.setPublication(publication);
-        impactAnalysis.setSummary(result.summary());
-        impactAnalysis.setImpactLevel(result.impactLevel());
-        impactAnalysis.setStatus(AnalysisStatus.COMPLETED);
-        impactAnalysis.setAnalysisVersion("automatic-v1");
-        impactAnalysis.setHomologationDeadline(
-                result.homologationDeadline()
+        ImpactAnalysis impactAnalysis = toImpactAnalysis(
+                publication,
+                result,
+                AUTOMATIC_ANALYSIS_VERSION
         );
-        impactAnalysis.setProductionDeadline(result.productionDeadline());
-        impactAnalysis.setAnalyzedAt(LocalDateTime.now());
+
+        return saveAndMap(impactAnalysis);
+    }
+
+    @Transactional
+    public ImpactAnalysisResponse analyzeSchemaComparison(
+            SchemaComparisonRequest request
+    ) {
+
+        PublicationEntity publication = publicationRepository
+                .findByExternalId(request.currentExternalId())
+                .orElseThrow(
+                        () -> new PublicationNotFoundException(
+                                request.currentExternalId()
+                        )
+                );
+
+        return impactAnalysisRepository
+                .findByPublicationId(publication.getId())
+                .stream()
+                .filter(impactAnalysis -> SCHEMA_COMPARISON_ANALYSIS_VERSION
+                        .equals(impactAnalysis.getAnalysisVersion()))
+                .findFirst()
+                .map(impactAnalysisMapper::toResponse)
+                .orElseGet(() -> createSchemaComparisonAnalysis(
+                        publication,
+                        request
+                ));
+    }
+
+    private ImpactAnalysisResponse createSchemaComparisonAnalysis(
+            PublicationEntity publication,
+            SchemaComparisonRequest request
+    ) {
+
+        PublicationDocumentAnalysisInput document =
+                publicationDocumentRepository
+                        .findByPublicationId(publication.getId())
+                        .map(this::toPublicationDocumentAnalysisInput)
+                        .orElse(null);
+        PublicationAnalysisInput publicationInput = toPublicationAnalysisInput(
+                publication,
+                document
+        );
+        SchemaChangeAnalysisInput input = new SchemaChangeAnalysisInput(
+                publicationInput,
+                request.currentExternalId(),
+                request.previousExternalId(),
+                request.currentVersion(),
+                request.previousVersion(),
+                request.changes()
+        );
+        ImpactAnalysisResult result = schemaChangeImpactAnalyzer.analyze(input);
+        ImpactAnalysis impactAnalysis = toImpactAnalysis(
+                publication,
+                result,
+                SCHEMA_COMPARISON_ANALYSIS_VERSION
+        );
+
+        return saveAndMap(impactAnalysis);
+    }
+
+    private ImpactAnalysis toImpactAnalysis(
+            PublicationEntity publication,
+            ImpactAnalysisResult result,
+            String analysisVersion
+    ) {
+
+        ImpactAnalysis impactAnalysis = newImpactAnalysis(
+                publication,
+                result.summary(),
+                result.impactLevel(),
+                analysisVersion,
+                result.homologationDeadline(),
+                result.productionDeadline()
+        );
 
         addTechnicalImpactResults(
                 impactAnalysis,
@@ -144,6 +215,34 @@ public class ImpactAnalysisService {
         );
         addActionItemResults(impactAnalysis, result.actionItems());
         addEvidenceResults(impactAnalysis, result.evidences());
+
+        return impactAnalysis;
+    }
+
+    private ImpactAnalysis newImpactAnalysis(
+            PublicationEntity publication,
+            String summary,
+            ImpactLevel impactLevel,
+            String analysisVersion,
+            LocalDateTime homologationDeadline,
+            LocalDateTime productionDeadline
+    ) {
+
+        ImpactAnalysis impactAnalysis = new ImpactAnalysis();
+
+        impactAnalysis.setPublication(publication);
+        impactAnalysis.setSummary(summary);
+        impactAnalysis.setImpactLevel(impactLevel);
+        impactAnalysis.setStatus(AnalysisStatus.COMPLETED);
+        impactAnalysis.setAnalysisVersion(analysisVersion);
+        impactAnalysis.setHomologationDeadline(homologationDeadline);
+        impactAnalysis.setProductionDeadline(productionDeadline);
+        impactAnalysis.setAnalyzedAt(LocalDateTime.now());
+
+        return impactAnalysis;
+    }
+
+    private ImpactAnalysisResponse saveAndMap(ImpactAnalysis impactAnalysis) {
 
         ImpactAnalysis savedImpactAnalysis =
                 impactAnalysisRepository.save(impactAnalysis);

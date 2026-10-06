@@ -5,11 +5,15 @@ import br.com.fiscalwatch.fiscalservice.impactanalysis.analyzer.EvidenceResult;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.analyzer.ImpactAnalysisResult;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.analyzer.ImpactAnalyzer;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.analyzer.PublicationAnalysisInput;
+import br.com.fiscalwatch.fiscalservice.impactanalysis.analyzer.SchemaChangeAnalysisInput;
+import br.com.fiscalwatch.fiscalservice.impactanalysis.analyzer.SchemaChangeImpactAnalyzer;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.analyzer.TechnicalImpactResult;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.dto.ActionItemRequest;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.dto.EvidenceRequest;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.dto.ImpactAnalysisRequest;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.dto.ImpactAnalysisResponse;
+import br.com.fiscalwatch.fiscalservice.impactanalysis.dto.SchemaChangeRequest;
+import br.com.fiscalwatch.fiscalservice.impactanalysis.dto.SchemaComparisonRequest;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.dto.TechnicalImpactRequest;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.entity.ImpactAnalysis;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.enums.AnalysisStatus;
@@ -64,6 +68,9 @@ class ImpactAnalysisServiceTest {
     @Mock
     private ImpactAnalyzer impactAnalyzer;
 
+    @Mock
+    private SchemaChangeImpactAnalyzer schemaChangeImpactAnalyzer;
+
     private ImpactAnalysisService impactAnalysisService;
 
     @BeforeEach
@@ -73,7 +80,8 @@ class ImpactAnalysisServiceTest {
                 publicationRepository,
                 publicationDocumentRepository,
                 impactAnalysisMapper,
-                impactAnalyzer
+                impactAnalyzer,
+                schemaChangeImpactAnalyzer
         );
     }
 
@@ -421,6 +429,109 @@ class ImpactAnalysisServiceTest {
         verify(impactAnalysisMapper, never()).toResponse(any(ImpactAnalysis.class));
     }
 
+    @Test
+    void deveCriarAnaliseDeComparacaoDeSchemaComPublicacaoExistente() {
+
+        Long publicationId = 10L;
+        PublicationEntity publication = criarPublicacao(publicationId);
+        SchemaComparisonRequest request = criarSchemaComparisonRequest();
+        ImpactAnalysisResult analysisResult = criarResultadoAnalise();
+        ImpactAnalysisResponse response = criarResponse(1L, publicationId);
+
+        when(publicationRepository.findByExternalId(
+                request.currentExternalId()
+        )).thenReturn(Optional.of(publication));
+        when(impactAnalysisRepository.findByPublicationId(publicationId))
+                .thenReturn(List.of());
+        when(publicationDocumentRepository.findByPublicationId(publicationId))
+                .thenReturn(Optional.empty());
+        when(schemaChangeImpactAnalyzer.analyze(
+                any(SchemaChangeAnalysisInput.class)
+        )).thenReturn(analysisResult);
+        when(impactAnalysisRepository.save(any(ImpactAnalysis.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        when(impactAnalysisMapper.toResponse(any(ImpactAnalysis.class)))
+                .thenReturn(response);
+
+        ImpactAnalysisResponse result =
+                impactAnalysisService.analyzeSchemaComparison(request);
+
+        ArgumentCaptor<SchemaChangeAnalysisInput> inputCaptor =
+                ArgumentCaptor.forClass(SchemaChangeAnalysisInput.class);
+        ArgumentCaptor<ImpactAnalysis> analysisCaptor =
+                ArgumentCaptor.forClass(ImpactAnalysis.class);
+
+        verify(publicationRepository)
+                .findByExternalId(request.currentExternalId());
+        verify(schemaChangeImpactAnalyzer).analyze(inputCaptor.capture());
+        verify(impactAnalysisRepository).save(analysisCaptor.capture());
+
+        SchemaChangeAnalysisInput input = inputCaptor.getValue();
+
+        assertEquals(publication.getExternalId(), input.publication().externalId());
+        assertEquals(request.currentExternalId(), input.currentExternalId());
+        assertEquals(request.previousExternalId(), input.previousExternalId());
+        assertEquals(request.currentVersion(), input.currentVersion());
+        assertEquals(request.previousVersion(), input.previousVersion());
+        assertEquals(request.changes(), input.changes());
+
+        ImpactAnalysis saved = analysisCaptor.getValue();
+
+        assertSame(publication, saved.getPublication());
+        assertEquals("schema-comparison-v1", saved.getAnalysisVersion());
+        assertEquals(analysisResult.summary(), saved.getSummary());
+        assertEquals(1, saved.getTechnicalImpacts().size());
+        assertEquals(1, saved.getActionItems().size());
+        assertEquals(1, saved.getEvidences().size());
+        assertSame(response, result);
+    }
+
+    @Test
+    void deveReutilizarAnaliseDeSchemaExistenteParaMesmaPublicacao() {
+
+        Long publicationId = 10L;
+        PublicationEntity publication = criarPublicacao(publicationId);
+        SchemaComparisonRequest request = criarSchemaComparisonRequest();
+        ImpactAnalysis existing = new ImpactAnalysis();
+        ImpactAnalysisResponse response = criarResponse(1L, publicationId);
+
+        existing.setAnalysisVersion("schema-comparison-v1");
+
+        when(publicationRepository.findByExternalId(
+                request.currentExternalId()
+        )).thenReturn(Optional.of(publication));
+        when(impactAnalysisRepository.findByPublicationId(publicationId))
+                .thenReturn(List.of(existing));
+        when(impactAnalysisMapper.toResponse(existing)).thenReturn(response);
+
+        ImpactAnalysisResponse result =
+                impactAnalysisService.analyzeSchemaComparison(request);
+
+        verify(schemaChangeImpactAnalyzer, never())
+                .analyze(any(SchemaChangeAnalysisInput.class));
+        verify(impactAnalysisRepository, never()).save(any());
+        assertSame(response, result);
+    }
+
+    @Test
+    void deveLancarExcecaoAoAnalisarSchemaDePublicacaoInexistente() {
+
+        SchemaComparisonRequest request = criarSchemaComparisonRequest();
+
+        when(publicationRepository.findByExternalId(
+                request.currentExternalId()
+        )).thenReturn(Optional.empty());
+
+        assertThrows(
+                PublicationNotFoundException.class,
+                () -> impactAnalysisService.analyzeSchemaComparison(request)
+        );
+
+        verify(schemaChangeImpactAnalyzer, never())
+                .analyze(any(SchemaChangeAnalysisInput.class));
+        verify(impactAnalysisRepository, never()).save(any());
+    }
+
     private ImpactAnalysisRequest criarRequest(Long publicationId) {
 
         return new ImpactAnalysisRequest(
@@ -452,6 +563,24 @@ class ImpactAnalysisServiceTest {
                         "Trecho oficial da publicacao",
                         10,
                         40
+                ))
+        );
+    }
+
+    private SchemaComparisonRequest criarSchemaComparisonRequest() {
+
+        return new SchemaComparisonRequest(
+                "external-1",
+                "external-0",
+                "2025.002 v1.30",
+                "2025.002 v1.20",
+                List.of(new SchemaChangeRequest(
+                        "DFeTiposBasicos_v1.00.xsd",
+                        "TYPE_CHANGED",
+                        "complexType:TCIBS/element:vBC",
+                        "vBC",
+                        "TDec1302",
+                        "TDec1302RTC"
                 ))
         );
     }

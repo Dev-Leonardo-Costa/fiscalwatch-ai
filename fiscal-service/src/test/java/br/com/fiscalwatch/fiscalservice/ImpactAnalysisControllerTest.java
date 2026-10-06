@@ -2,6 +2,7 @@ package br.com.fiscalwatch.fiscalservice;
 
 import br.com.fiscalwatch.fiscalservice.impactanalysis.controller.ImpactAnalysisController;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.dto.ImpactAnalysisResponse;
+import br.com.fiscalwatch.fiscalservice.impactanalysis.dto.SchemaComparisonRequest;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.enums.AnalysisStatus;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.enums.ImpactLevel;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.exception.ImpactAnalysisNotFoundException;
@@ -19,8 +20,10 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import java.time.LocalDateTime;
 import java.util.List;
 
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.springframework.http.MediaType.APPLICATION_JSON;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -68,6 +71,48 @@ class ImpactAnalysisControllerTest {
                 .andExpect(jsonPath("$.status").value("COMPLETED"));
 
         verify(impactAnalysisService).analyzePublication(publicationId);
+    }
+
+    @Test
+    void deveAnalisarComparacaoDeSchemaERetornarCreated() throws Exception {
+
+        ImpactAnalysisResponse response = criarResponse(1L, 10L);
+
+        when(impactAnalysisService.analyzeSchemaComparison(
+                any(SchemaComparisonRequest.class)
+        )).thenReturn(response);
+
+        mockMvc.perform(
+                        post("/api/impact-analyses/schema-comparisons")
+                                .contentType(APPLICATION_JSON)
+                                .content("""
+                                        {
+                                          "currentExternalId": "external-1",
+                                          "previousExternalId": "external-0",
+                                          "currentVersion": "2025.002 v1.30",
+                                          "previousVersion": "2025.002 v1.20",
+                                          "changes": [
+                                            {
+                                              "artifact": "DFeTiposBasicos_v1.00.xsd",
+                                              "changeType": "TYPE_CHANGED",
+                                              "schemaPath": "complexType:TCIBS/element:vBC",
+                                              "symbolName": "vBC",
+                                              "before": "TDec1302",
+                                              "after": "TDec1302RTC"
+                                            }
+                                          ]
+                                        }
+                                        """)
+                )
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.id").value(1L))
+                .andExpect(jsonPath("$.publicationId").value(10L))
+                .andExpect(jsonPath("$.impactLevel").value("HIGH"))
+                .andExpect(jsonPath("$.status").value("COMPLETED"));
+
+        verify(impactAnalysisService).analyzeSchemaComparison(
+                any(SchemaComparisonRequest.class)
+        );
     }
 
     @Test

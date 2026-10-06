@@ -1,7 +1,9 @@
 package br.com.fiscalwatch.fiscalservice.impactanalysis.controller;
 
 import br.com.fiscalwatch.fiscalservice.impactanalysis.dto.ImpactAnalysisResponse;
+import br.com.fiscalwatch.fiscalservice.impactanalysis.dto.SchemaComparisonRequest;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.service.ImpactAnalysisService;
+import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -27,6 +29,19 @@ public class ImpactAnalysisController {
 
         ImpactAnalysisResponse response =
                 impactAnalysisService.analyzePublication(publicationId);
+
+        return ResponseEntity
+                .status(HttpStatus.CREATED)
+                .body(response);
+    }
+
+    @PostMapping("/schema-comparisons")
+    public ResponseEntity<ImpactAnalysisResponse> analyzeSchemaComparison(
+            @Valid @RequestBody SchemaComparisonRequest request
+    ) {
+
+        ImpactAnalysisResponse response =
+                impactAnalysisService.analyzeSchemaComparison(request);
 
         return ResponseEntity
                 .status(HttpStatus.CREATED)
