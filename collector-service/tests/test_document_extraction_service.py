@@ -488,6 +488,252 @@ def test_deve_retornar_failed_para_portal_nfe_quando_download_ou_extracao_falhar
     assert document.extracted_at is not None
 
 
+def test_deve_gerar_publication_document_extraido_para_dou(monkeypatch):
+    dou_url = (
+        "https://www.in.gov.br/web/dou/-/"
+        "ato-tecnico-conjunto-rfb-suara-cgibs"
+    )
+    html = criar_html_dou_com_conteudo_principal()
+
+    class RespostaHttp:
+        text = html
+
+        def raise_for_status(self):
+            pass
+
+    monkeypatch.setattr(
+        document_extraction_service.httpx,
+        "get",
+        lambda url, headers, timeout, follow_redirects: RespostaHttp(),
+        raising=False
+    )
+    monkeypatch.setattr(
+        document_extraction_service.svrs_collector,
+        "download_document",
+        lambda url, filename: (_ for _ in ()).throw(
+            AssertionError("Fluxo PDF nao deve ser usado para DOU")
+        )
+    )
+
+    publication = criar_publicacao_dou(download_url=dou_url)
+
+    document = document_extraction_service.extract_publication_document(
+        publication
+    )
+
+    assert document.extraction_status == "EXTRACTED"
+    assert document.source_url == dou_url
+    assert document.content_text.startswith(
+        "ATO TÉCNICO CONJUNTO RFB/SUARA/CGIBS"
+    )
+    assert "Documentação técnica aplicável à CBS e ao IBS" in (
+        document.content_text
+    )
+    assert document.content_hash == hashlib.sha256(
+        document.content_text.encode("utf-8")
+    ).hexdigest()
+    assert document.content_length == len(document.content_text)
+    assert document.extraction_error is None
+    assert document.extractor_version == "dou-html-v1"
+    assert document.extracted_at is not None
+
+
+def test_deve_enviar_headers_de_navegador_ao_baixar_html_do_dou(
+    monkeypatch
+):
+    dou_url = (
+        "https://www.in.gov.br/web/dou/-/"
+        "ato-tecnico-conjunto-rfb-suara-cgibs"
+    )
+    html = criar_html_dou_com_conteudo_principal()
+    requisicao = {}
+
+    class RespostaHttp:
+        text = html
+
+        def raise_for_status(self):
+            pass
+
+    def baixar_html(url, headers, timeout, follow_redirects):
+        requisicao["url"] = url
+        requisicao["headers"] = headers
+        requisicao["timeout"] = timeout
+        requisicao["follow_redirects"] = follow_redirects
+        return RespostaHttp()
+
+    monkeypatch.setattr(
+        document_extraction_service.httpx,
+        "get",
+        baixar_html,
+        raising=False
+    )
+
+    publication = criar_publicacao_dou(download_url=dou_url)
+
+    document = document_extraction_service.extract_publication_document(
+        publication
+    )
+
+    assert document.extraction_status == "EXTRACTED"
+    assert requisicao["url"] == dou_url
+    assert requisicao["timeout"] == 30.0
+    assert requisicao["follow_redirects"] is True
+    assert "User-Agent" in requisicao["headers"]
+    assert "Mozilla/5.0" in requisicao["headers"]["User-Agent"]
+    assert "Accept-Language" in requisicao["headers"]
+    assert requisicao["headers"]["Accept-Language"].startswith("pt-BR")
+
+
+def test_deve_extrair_apenas_conteudo_principal_do_ato_dou(monkeypatch):
+    dou_url = (
+        "https://www.in.gov.br/web/dou/-/"
+        "ato-tecnico-conjunto-rfb-suara-cgibs"
+    )
+    html = criar_html_dou_com_conteudo_principal()
+
+    class RespostaHttp:
+        text = html
+
+        def raise_for_status(self):
+            pass
+
+    monkeypatch.setattr(
+        document_extraction_service.httpx,
+        "get",
+        lambda url, headers, timeout, follow_redirects: RespostaHttp(),
+        raising=False
+    )
+    monkeypatch.setattr(
+        document_extraction_service.svrs_collector,
+        "download_document",
+        lambda url, filename: (_ for _ in ()).throw(
+            AssertionError("Fluxo PDF nao deve ser usado para DOU")
+        )
+    )
+
+    publication = criar_publicacao_dou(download_url=dou_url)
+
+    document = document_extraction_service.extract_publication_document(
+        publication
+    )
+
+    assert "ATO TÉCNICO CONJUNTO" in document.content_text
+    assert "Manual de Habilitação de Participantes" in document.content_text
+    assert "Caminho de Navegação" not in document.content_text
+    assert "Compartilhe:" not in document.content_text
+    assert "Brasão do Brasil" not in document.content_text
+    assert "REPORTAR ERRO" not in document.content_text
+
+
+def test_deve_retornar_pending_para_dou_sem_download_url():
+    publication = criar_publicacao_dou(download_url=None)
+
+    document = document_extraction_service.extract_publication_document(
+        publication
+    )
+
+    assert document.extraction_status == "PENDING"
+    assert document.source_url is None
+    assert document.content_text is None
+    assert document.content_hash is None
+    assert document.content_length is None
+    assert document.extraction_error is None
+
+
+def test_deve_retornar_failed_para_dou_quando_download_falhar(monkeypatch):
+    dou_url = (
+        "https://www.in.gov.br/web/dou/-/"
+        "ato-tecnico-conjunto-rfb-suara-cgibs"
+    )
+
+    def falhar_download(url, headers, timeout, follow_redirects):
+        assert url == dou_url
+        raise RuntimeError("dou indisponivel\nstack trace")
+
+    monkeypatch.setattr(
+        document_extraction_service.httpx,
+        "get",
+        falhar_download,
+        raising=False
+    )
+    monkeypatch.setattr(
+        document_extraction_service.svrs_collector,
+        "download_document",
+        lambda url, filename: (_ for _ in ()).throw(
+            RuntimeError("dou indisponivel\nstack trace")
+        )
+    )
+
+    publication = criar_publicacao_dou(download_url=dou_url)
+
+    document = document_extraction_service.extract_publication_document(
+        publication
+    )
+
+    assert document.extraction_status == "FAILED"
+    assert document.source_url == dou_url
+    assert document.content_text is None
+    assert document.content_hash is None
+    assert document.content_length is None
+    assert document.extraction_error == "dou indisponivel"
+    assert "\n" not in document.extraction_error
+    assert document.extractor_version == "dou-html-v1"
+    assert document.extracted_at is not None
+
+
+def test_deve_retornar_failed_para_dou_quando_conteudo_principal_nao_for_encontrado(
+    monkeypatch
+):
+    dou_url = (
+        "https://www.in.gov.br/web/dou/-/"
+        "ato-tecnico-conjunto-rfb-suara-cgibs"
+    )
+
+    class RespostaHttp:
+        text = """
+        <html>
+            <main>
+                <nav>Caminho de Navegação</nav>
+                <div>Menu e rodapé sem conteúdo do ato.</div>
+            </main>
+        </html>
+        """
+
+        def raise_for_status(self):
+            pass
+
+    monkeypatch.setattr(
+        document_extraction_service.httpx,
+        "get",
+        lambda url, headers, timeout, follow_redirects: RespostaHttp(),
+        raising=False
+    )
+    monkeypatch.setattr(
+        document_extraction_service.svrs_collector,
+        "download_document",
+        lambda url, filename: (_ for _ in ()).throw(
+            AssertionError("Fluxo PDF nao deve ser usado para DOU")
+        )
+    )
+
+    publication = criar_publicacao_dou(download_url=dou_url)
+
+    document = document_extraction_service.extract_publication_document(
+        publication
+    )
+
+    assert document.extraction_status == "FAILED"
+    assert document.source_url == dou_url
+    assert document.content_text is None
+    assert document.content_hash is None
+    assert document.content_length is None
+    assert document.extractor_version == "dou-html-v1"
+    assert document.extraction_error == (
+        "conteudo principal do DOU nao encontrado"
+    )
+    assert document.extracted_at is not None
+
+
 def criar_publicacao(download_url: str | None) -> Publication:
     return Publication(
         external_id="a" * 64,
@@ -497,6 +743,58 @@ def criar_publicacao(download_url: str | None) -> Publication:
         published_at=datetime.now(),
         download_url=download_url
     )
+
+
+def criar_publicacao_dou(download_url: str | None) -> Publication:
+    return Publication(
+        external_id="e" * 64,
+        source="IMPRENSA_NACIONAL_DOU",
+        title=(
+            "ATO TÉCNICO CONJUNTO RFB/SUARA/CGIBS/DIRETORIA-EXECUTIVA "
+            "Nº 4, DE 28 DE AGOSTO DE 2026"
+        ),
+        document_type="ATO_TECNICO",
+        published_at=datetime.now(),
+        download_url=download_url
+    )
+
+
+def criar_html_dou_com_conteudo_principal() -> str:
+    return """
+    <html>
+        <body>
+            <main id="content">
+                <nav>Caminho de Navegação</nav>
+                <h2>Publicador de Conteúdos e Mídias</h2>
+                <article id="materia">
+                    <div class="row-fluid">
+                        <div class="cabecalho-dou text-center">
+                            Brasão do Brasil Diário Oficial da União
+                        </div>
+                        <div class="detalhes-dou">
+                            Publicado em: 08/09/2026 | Edição: 169
+                        </div>
+                        <div class="dou-modelo">
+                            <a>Voltar</a>
+                            <span>Compartilhe:</span>
+                            <div class="texto-dou">
+                                <html>
+                                    <body>
+                                        <p>ATO TÉCNICO CONJUNTO RFB/SUARA/CGIBS/DIRETORIA-EXECUTIVA Nº 4, DE 28 DE AGOSTO DE 2026</p>
+                                        <p>Documentação técnica aplicável à CBS e ao IBS.</p>
+                                        <p>Art. 1º Fica aprovada a documentação técnica a seguir indicada.</p>
+                                        <p>I - Manual de Habilitação de Participantes - versão 1.0.0.</p>
+                                    </body>
+                                </html>
+                            </div>
+                        </div>
+                    </div>
+                </article>
+                <section>REPORTAR ERRO</section>
+            </main>
+        </body>
+    </html>
+    """
 
 
 def criar_publicacao_portal_nfe(download_url: str | None) -> Publication:

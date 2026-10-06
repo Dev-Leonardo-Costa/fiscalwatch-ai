@@ -8,6 +8,13 @@ def normalize_document_type(
     if "ato técnico" in normalized_title:
         return "ATO_TECNICO"
 
+    if (
+        "ato conjunto" in normalized_title
+        and "rfb" in normalized_title
+        and "cgibs" in normalized_title
+    ):
+        return "ATO_NORMATIVO"
+
     if not document_type:
         return "OUTRO"
 

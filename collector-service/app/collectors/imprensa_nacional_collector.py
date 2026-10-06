@@ -11,6 +11,20 @@ from app.service.document_type_service import normalize_document_type
 IMPRENSA_NACIONAL_URL = "https://www.gov.br/imprensanacional"
 
 
+DOU_HTTP_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/153.0.0.0 Safari/537.36"
+    ),
+    "Accept": (
+        "text/html,application/xhtml+xml,"
+        "application/xml;q=0.9,*/*;q=0.8"
+    ),
+    "Accept-Language": "pt-BR,pt;q=0.9,en;q=0.8"
+}
+
+
 def fetch_imprensa_nacional_page() -> str:
 
     response = httpx.get(
@@ -50,23 +64,9 @@ IMPRENSA_DOU_URL = (
 
 
 def fetch_dou_page() -> str:
-
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/153.0.0.0 Safari/537.36"
-        ),
-        "Accept": (
-            "text/html,application/xhtml+xml,"
-            "application/xml;q=0.9,*/*;q=0.8"
-        ),
-        "Accept-Language": "pt-BR,pt;q=0.9,en;q=0.8"
-    }
-
     response = httpx.get(
         IMPRENSA_DOU_URL,
-        headers=headers,
+        headers=DOU_HTTP_HEADERS,
         timeout=30.0,
         follow_redirects=True
     )
@@ -83,19 +83,9 @@ IMPRENSA_DOU_DATABASE_URL = (
 
 
 def fetch_dou_database_page() -> str:
-
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/153.0.0.0 Safari/537.36"
-        ),
-        "Accept-Language": "pt-BR,pt;q=0.9"
-    }
-
     response = httpx.get(
         IMPRENSA_DOU_DATABASE_URL,
-        headers=headers,
+        headers=DOU_HTTP_HEADERS,
         timeout=30.0,
         follow_redirects=True
     )
@@ -132,19 +122,10 @@ def fetch_dou_section_page(
         "data": date
     }
 
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/153.0.0.0 Safari/537.36"
-        ),
-        "Accept-Language": "pt-BR,pt;q=0.9"
-    }
-
     response = httpx.get(
         url,
         params=params,
-        headers=headers,
+        headers=DOU_HTTP_HEADERS,
         timeout=30.0,
         follow_redirects=True
     )
@@ -205,16 +186,6 @@ def search_dou(
     keyword: str,
     section: str = "do1"
 ) -> str:
-
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/153.0.0.0 Safari/537.36"
-        ),
-        "Accept-Language": "pt-BR,pt;q=0.9"
-    }
-
     params = {
         "q": keyword,
         "s": section,
@@ -224,7 +195,7 @@ def search_dou(
     response = httpx.get(
         DOU_SEARCH_URL,
         params=params,
-        headers=headers,
+        headers=DOU_HTTP_HEADERS,
         timeout=30.0,
         follow_redirects=True
     )
@@ -232,6 +203,20 @@ def search_dou(
     response.raise_for_status()
 
     return response.text
+
+
+def get_imprensa_nacional_publications(
+    keyword: str = "IBS",
+    section: str = "do1"
+) -> list[Publication]:
+    html = search_dou(
+        keyword=keyword,
+        section=section
+    )
+
+    results = parse_dou_search_results(html)
+
+    return parse_dou_publications(results)
 
 
 def extract_dou_search_params(html: str) -> str | None:

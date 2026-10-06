@@ -92,6 +92,39 @@ def test_nao_deve_considerar_sigla_ibs_sem_contexto_fiscal_como_relevante():
     assert resultado is False     
 
 
+def test_deve_considerar_comite_gestor_ibs_como_contexto_fiscal_relevante():
+    publicacao = Publication(
+        external_id="g" * 64,
+        source="IMPRENSA_NACIONAL_DOU",
+        title="PORTARIA STN/MF Nº 1.986",
+        document_type="OUTRO",
+        published_at=datetime.now(),
+        description=(
+            "Altera procedimentos contábeis relacionados ao "
+            "Comitê Gestor IBS e à arrecadação do imposto."
+        )
+    )
+
+    resultado = is_relevant_publication(publicacao)
+
+    assert resultado is True
+
+
+def test_nao_deve_considerar_ibs_comercializadora_como_relevante():
+    publicacao = Publication(
+        external_id="h" * 64,
+        source="IMPRENSA_NACIONAL_DOU",
+        title="Ata de reunião ordinária",
+        document_type="OUTRO",
+        published_at=datetime.now(),
+        description="IBS Comercializadora Ltda."
+    )
+
+    resultado = is_relevant_publication(publicacao)
+
+    assert resultado is False
+
+
 def test_deve_manter_apenas_publicacoes_das_ultimas_72_horas():
     agora = datetime.now()
 
@@ -117,4 +150,4 @@ def test_deve_manter_apenas_publicacoes_das_ultimas_72_horas():
     )
 
     assert len(resultado) == 1
-    assert resultado[0].external_id == publicacao_recente.external_id    
+    assert resultado[0].external_id == publicacao_recente.external_id

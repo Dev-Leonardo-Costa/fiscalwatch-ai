@@ -100,7 +100,11 @@ def is_relevant_publication(
         "regra de validação",
         "ato técnico conjunto",
         "api fiscal",
-        "cgibs"
+        "cgibs",
+        "comitê gestor ibs",
+        "comite gestor ibs",
+        "comitê gestor do ibs",
+        "comite gestor do ibs"
     ]
 
     text = (

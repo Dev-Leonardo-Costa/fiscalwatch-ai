@@ -363,3 +363,99 @@ def test_endpoint_dispatch_nfe_unitario_deve_retornar_404_quando_nao_encontrado(
         "published": 0,
         "external_id": external_id
     }
+
+
+def test_endpoint_dispatch_dou_deve_retornar_200(monkeypatch):
+    monkeypatch.setattr(
+        main,
+        "dispatch_dou_publications",
+        lambda: {
+            "source": "IMPRENSA_NACIONAL_DOU",
+            "collected": 2,
+            "published": 1
+        },
+        raising=False
+    )
+
+    response = client.post("/dispatch/dou")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "source": "IMPRENSA_NACIONAL_DOU",
+        "collected": 2,
+        "published": 1
+    }
+
+
+def test_endpoint_dispatch_dou_unitario_deve_retornar_200(monkeypatch):
+    external_id = "3" * 64
+
+    monkeypatch.setattr(
+        main,
+        "dispatch_dou_publication_by_external_id",
+        lambda requested_external_id: {
+            "source": "IMPRENSA_NACIONAL_DOU",
+            "status": "PUBLISHED",
+            "published": 1,
+            "publication": {
+                "external_id": requested_external_id,
+                "title": "ATO TÉCNICO CONJUNTO RFB/SUARA/CGIBS Nº 4",
+                "download_url": (
+                    "https://www.in.gov.br/web/dou/-/ato-tecnico"
+                )
+            },
+            "document": {
+                "extraction_status": "EXTRACTED",
+                "content_length": 2157,
+                "content_hash": "hash-dou",
+                "extraction_error": None,
+                "extractor_version": "dou-html-v1",
+                "extracted_at": "2026-10-06T00:32:32"
+            }
+        },
+        raising=False
+    )
+
+    response = client.post(
+        f"/dispatch/dou/publications/{external_id}"
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["source"] == "IMPRENSA_NACIONAL_DOU"
+    assert payload["status"] == "PUBLISHED"
+    assert payload["published"] == 1
+    assert payload["publication"]["external_id"] == external_id
+    assert payload["document"]["extraction_status"] == "EXTRACTED"
+    assert payload["document"]["extractor_version"] == "dou-html-v1"
+    assert "content_text" not in payload["document"]
+
+
+def test_endpoint_dispatch_dou_unitario_deve_retornar_404_quando_nao_encontrado(
+    monkeypatch
+):
+    external_id = "4" * 64
+
+    monkeypatch.setattr(
+        main,
+        "dispatch_dou_publication_by_external_id",
+        lambda requested_external_id: {
+            "source": "IMPRENSA_NACIONAL_DOU",
+            "status": "NOT_FOUND",
+            "published": 0,
+            "external_id": requested_external_id
+        },
+        raising=False
+    )
+
+    response = client.post(
+        f"/dispatch/dou/publications/{external_id}"
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == {
+        "source": "IMPRENSA_NACIONAL_DOU",
+        "status": "NOT_FOUND",
+        "published": 0,
+        "external_id": external_id
+    }

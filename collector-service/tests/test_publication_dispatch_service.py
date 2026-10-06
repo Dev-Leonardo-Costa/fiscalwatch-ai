@@ -807,6 +807,215 @@ def test_dispatch_nfe_unitario_external_id_inexistente_nao_deve_publicar(
     assert publicacoes_despachadas == []
 
 
+def test_deve_publicar_publicacao_dou_relevante(monkeypatch):
+    publicacao = criar_publicacao_dou(
+        external_id="1" * 64,
+        title=(
+            "ATO TÉCNICO CONJUNTO RFB/SUARA/CGIBS/"
+            "DIRETORIA-EXECUTIVA Nº 4"
+        ),
+        document_type="ATO_TECNICO",
+        description="Documentação técnica aplicável à CBS e ao IBS.",
+        download_url="https://www.in.gov.br/web/dou/-/ato-tecnico"
+    )
+    eventos_publicados = []
+
+    monkeypatch.setattr(
+        publication_dispatch_service,
+        "get_imprensa_nacional_publications",
+        lambda: [publicacao],
+        raising=False
+    )
+    monkeypatch.setattr(
+        publication_dispatch_service,
+        "publish_publication_event",
+        eventos_publicados.append
+    )
+    monkeypatch.setattr(
+        publication_dispatch_service,
+        "extract_publication_document",
+        lambda publication: PublicationDocument(
+            source_url=publication.download_url,
+            content_text="Texto principal do ato DOU",
+            content_length=len("Texto principal do ato DOU"),
+            content_hash="hash-dou",
+            extraction_status="EXTRACTED",
+            extractor_version="dou-html-v1",
+            extracted_at=datetime.now()
+        )
+    )
+
+    resultado = publication_dispatch_service.dispatch_dou_publications()
+
+    assert resultado == {
+        "source": "IMPRENSA_NACIONAL_DOU",
+        "collected": 1,
+        "published": 1
+    }
+    assert len(eventos_publicados) == 1
+    assert eventos_publicados[0].event_type == PUBLICATION_DISCOVERED
+    assert eventos_publicados[0].publication == publicacao
+    assert eventos_publicados[0].publication.document_type == "ATO_TECNICO"
+    assert eventos_publicados[0].document.extraction_status == "EXTRACTED"
+    assert eventos_publicados[0].document.extractor_version == "dou-html-v1"
+    assert eventos_publicados[0].document.content_text == (
+        "Texto principal do ato DOU"
+    )
+
+
+def test_deve_ignorar_publicacao_dou_irrelevante_no_dispatch_em_lote(
+    monkeypatch
+):
+    relevante = criar_publicacao_dou(
+        external_id="2" * 64,
+        title="ATO CONJUNTO RFB/CGIBS Nº 4",
+        document_type="ATO_NORMATIVO",
+        description="Estabelece obrigações acessórias para CBS e IBS.",
+        download_url="https://www.in.gov.br/web/dou/-/ato-conjunto"
+    )
+    irrelevante = criar_publicacao_dou(
+        external_id="3" * 64,
+        title="PORTARIA SEFIC/MINC Nº 628",
+        document_type="OUTRO",
+        description=(
+            "Plano Bianual de Atividades Brasil Solidário - "
+            "INSTITUTO BRASIL SOLIDARIO - IBS"
+        ),
+        download_url="https://www.in.gov.br/web/dou/-/portaria-irrelevante"
+    )
+    publicacoes_despachadas = []
+
+    monkeypatch.setattr(
+        publication_dispatch_service,
+        "get_imprensa_nacional_publications",
+        lambda: [relevante, irrelevante],
+        raising=False
+    )
+    monkeypatch.setattr(
+        publication_dispatch_service,
+        "dispatch_publication",
+        publicacoes_despachadas.append
+    )
+
+    resultado = publication_dispatch_service.dispatch_dou_publications()
+
+    assert resultado == {
+        "source": "IMPRENSA_NACIONAL_DOU",
+        "collected": 2,
+        "published": 1
+    }
+    assert publicacoes_despachadas == [relevante]
+    assert publicacoes_despachadas[0].document_type == "ATO_NORMATIVO"
+
+
+def test_dispatch_dou_unitario_encontra_publicacao_correta(monkeypatch):
+    primeira_publicacao = criar_publicacao_dou(
+        external_id="4" * 64,
+        title="ATO CONJUNTO RFB/CGIBS Nº 4",
+        document_type="ATO_NORMATIVO",
+        description="Estabelece regras fiscais para CBS e IBS.",
+        download_url="https://www.in.gov.br/web/dou/-/ato-correto"
+    )
+    segunda_publicacao = criar_publicacao_dou(
+        external_id="5" * 64,
+        title="ATO TÉCNICO CONJUNTO RFB/SUARA/CGIBS Nº 4",
+        document_type="ATO_TECNICO",
+        description="Documentação técnica aplicável à CBS e ao IBS.",
+        download_url="https://www.in.gov.br/web/dou/-/ato-incorreto"
+    )
+    eventos_publicados = []
+
+    monkeypatch.setattr(
+        publication_dispatch_service,
+        "get_imprensa_nacional_publications",
+        lambda: [segunda_publicacao, primeira_publicacao],
+        raising=False
+    )
+    monkeypatch.setattr(
+        publication_dispatch_service,
+        "extract_publication_document",
+        lambda publication: PublicationDocument(
+            source_url=publication.download_url,
+            content_text=f"Texto DOU {publication.external_id}",
+            content_length=len(f"Texto DOU {publication.external_id}"),
+            content_hash="hash-dou-unitario",
+            extraction_status="EXTRACTED",
+            extractor_version="dou-html-v1",
+            extracted_at=datetime.now()
+        )
+    )
+    monkeypatch.setattr(
+        publication_dispatch_service,
+        "publish_publication_event",
+        eventos_publicados.append
+    )
+
+    resultado = (
+        publication_dispatch_service
+        .dispatch_dou_publication_by_external_id(
+            primeira_publicacao.external_id
+        )
+    )
+
+    assert resultado["source"] == "IMPRENSA_NACIONAL_DOU"
+    assert resultado["status"] == "PUBLISHED"
+    assert resultado["published"] == 1
+    assert resultado["publication"] == {
+        "external_id": primeira_publicacao.external_id,
+        "title": primeira_publicacao.title,
+        "download_url": primeira_publicacao.download_url
+    }
+    assert resultado["document"]["extraction_status"] == "EXTRACTED"
+    assert resultado["document"]["extractor_version"] == "dou-html-v1"
+    assert "content_text" not in resultado["document"]
+    assert len(eventos_publicados) == 1
+    assert eventos_publicados[0].event_type == PUBLICATION_DISCOVERED
+    assert eventos_publicados[0].publication == primeira_publicacao
+    assert eventos_publicados[0].publication != segunda_publicacao
+    assert eventos_publicados[0].publication.document_type == "ATO_NORMATIVO"
+    assert eventos_publicados[0].document.content_text == (
+        f"Texto DOU {primeira_publicacao.external_id}"
+    )
+
+
+def test_dispatch_dou_unitario_external_id_inexistente_nao_deve_publicar(
+    monkeypatch
+):
+    publicacao = criar_publicacao_dou(
+        external_id="6" * 64,
+        title="ATO TÉCNICO CONJUNTO RFB/SUARA/CGIBS Nº 4",
+        document_type="ATO_TECNICO",
+        description="Documentação técnica aplicável à CBS e ao IBS.",
+        download_url="https://www.in.gov.br/web/dou/-/ato-tecnico"
+    )
+    eventos_publicados = []
+
+    monkeypatch.setattr(
+        publication_dispatch_service,
+        "get_imprensa_nacional_publications",
+        lambda: [publicacao],
+        raising=False
+    )
+    monkeypatch.setattr(
+        publication_dispatch_service,
+        "publish_publication_event",
+        eventos_publicados.append
+    )
+
+    resultado = (
+        publication_dispatch_service
+        .dispatch_dou_publication_by_external_id("7" * 64)
+    )
+
+    assert resultado == {
+        "source": "IMPRENSA_NACIONAL_DOU",
+        "status": "NOT_FOUND",
+        "published": 0,
+        "external_id": "7" * 64
+    }
+    assert eventos_publicados == []
+
+
 def criar_publicacao(
     external_id: str,
     title: str,
@@ -863,5 +1072,23 @@ def criar_publicacao_receita(
         title=title,
         document_type="NOTICIA",
         published_at=datetime.now(),
+        download_url=download_url
+    )
+
+
+def criar_publicacao_dou(
+    external_id: str,
+    title: str,
+    document_type: str,
+    description: str,
+    download_url: str
+) -> Publication:
+    return Publication(
+        external_id=external_id,
+        source="IMPRENSA_NACIONAL_DOU",
+        title=title,
+        document_type=document_type,
+        published_at=datetime.now(),
+        description=description,
         download_url=download_url
     )

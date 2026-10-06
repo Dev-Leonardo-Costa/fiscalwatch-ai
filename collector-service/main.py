@@ -11,6 +11,8 @@ from app.service.publication_service import filter_recent_publications
 from app.service.publication_dispatch_service import (
     dispatch_cgibs_publication_by_external_id,
     dispatch_cgibs_publications,
+    dispatch_dou_publication_by_external_id,
+    dispatch_dou_publications,
     dispatch_nfe_publication_by_external_id,
     dispatch_nfe_publications,
     dispatch_receita_publication_by_external_id,
@@ -291,6 +293,24 @@ def dispatch_nfe():
 @app.post("/dispatch/nfe/publications/{external_id}")
 def dispatch_nfe_publication(external_id: str):
     result = dispatch_nfe_publication_by_external_id(external_id)
+
+    if result["status"] == "NOT_FOUND":
+        raise HTTPException(
+            status_code=404,
+            detail=result
+        )
+
+    return result
+
+
+@app.post("/dispatch/dou")
+def dispatch_dou():
+    return dispatch_dou_publications()
+
+
+@app.post("/dispatch/dou/publications/{external_id}")
+def dispatch_dou_publication(external_id: str):
+    result = dispatch_dou_publication_by_external_id(external_id)
 
     if result["status"] == "NOT_FOUND":
         raise HTTPException(

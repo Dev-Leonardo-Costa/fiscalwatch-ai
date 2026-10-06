@@ -1,6 +1,9 @@
 from datetime import datetime
 
 from app.collectors.cgibs_collector import get_cgibs_technical_publications
+from app.collectors.imprensa_nacional_collector import (
+    get_imprensa_nacional_publications
+)
 from app.collectors.nfe_collector import get_nfe_publications
 from app.collectors.receita_collector import get_news_publications
 from app.collectors.svrs_collector import get_publications
@@ -11,6 +14,7 @@ from app.model.publication_event import (
     PUBLICATION_DISCOVERED,
     PublicationEvent
 )
+from app.service.publication_service import filter_relevant_publications
 
 
 def dispatch_publication(publication) -> dict:
@@ -185,6 +189,46 @@ def dispatch_nfe_publication_by_external_id(external_id: str) -> dict:
     if publication is None:
         return {
             "source": "PORTAL_NFE",
+            "status": "NOT_FOUND",
+            "published": 0,
+            "external_id": external_id
+        }
+
+    return dispatch_publication(publication)
+
+
+def dispatch_dou_publications() -> dict:
+    publications = get_imprensa_nacional_publications()
+    relevant_publications = filter_relevant_publications(publications)
+
+    published = 0
+
+    for publication in relevant_publications:
+        dispatch_publication(publication)
+        published += 1
+
+    return {
+        "source": "IMPRENSA_NACIONAL_DOU",
+        "collected": len(publications),
+        "published": published
+    }
+
+
+def dispatch_dou_publication_by_external_id(external_id: str) -> dict:
+    publications = get_imprensa_nacional_publications()
+
+    publication = next(
+        (
+            publication
+            for publication in publications
+            if publication.external_id == external_id
+        ),
+        None
+    )
+
+    if publication is None:
+        return {
+            "source": "IMPRENSA_NACIONAL_DOU",
             "status": "NOT_FOUND",
             "published": 0,
             "external_id": external_id
