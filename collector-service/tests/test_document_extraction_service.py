@@ -1,4 +1,5 @@
 import hashlib
+import zipfile
 from datetime import datetime
 from pathlib import Path
 
@@ -161,6 +162,450 @@ def test_deve_retornar_failed_quando_extracao_falhar(
     assert document.extraction_status == "FAILED"
     assert document.extraction_error == "pdf invalido"
     assert pdf_path.exists() is False
+
+
+def test_deve_extrair_zip_svrs_com_xsd(monkeypatch, tmp_path):
+    zip_path = criar_zip_schema(
+        tmp_path,
+        {
+            "schemas/nfe_v4.00.xsd": (
+                "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+                "<xs:schema xmlns:xs=\"http://www.w3.org/2001/XMLSchema\">\n"
+                "  <xs:element name=\"NFe\"/>\n"
+                "</xs:schema>\n"
+            )
+        }
+    )
+    monkeypatch.setattr(
+        document_extraction_service.svrs_collector,
+        "download_document",
+        lambda url, filename: str(zip_path)
+    )
+    monkeypatch.setattr(
+        document_extraction_service.svrs_collector,
+        "extract_pdf_text",
+        lambda file_path: (_ for _ in ()).throw(
+            AssertionError("ZIP de schema nao deve usar pypdf")
+        )
+    )
+
+    publication = criar_publicacao_schema(
+        download_url="https://example.com/schemas.zip"
+    )
+
+    document = document_extraction_service.extract_publication_document(
+        publication
+    )
+
+    assert document.extraction_status == "EXTRACTED"
+    assert document.extractor_version == "svrs-schema-zip-v1"
+    assert "=== arquivo: schemas/nfe_v4.00.xsd ===" in (
+        document.content_text
+    )
+    assert "<xs:element name=\"NFe\"/>" in document.content_text
+    assert document.content_length == len(document.content_text)
+    assert document.content_hash == hashlib.sha256(
+        document.content_text.encode("utf-8")
+    ).hexdigest()
+
+
+def test_deve_concatenar_multiplos_xsd_do_zip_svrs(monkeypatch, tmp_path):
+    zip_path = criar_zip_schema(
+        tmp_path,
+        {
+            "schemas/a.xsd": "<xs:schema>A</xs:schema>",
+            "schemas/b.xsd": "<xs:schema>B</xs:schema>"
+        }
+    )
+    monkeypatch.setattr(
+        document_extraction_service.svrs_collector,
+        "download_document",
+        lambda url, filename: str(zip_path)
+    )
+
+    document = document_extraction_service.extract_publication_document(
+        criar_publicacao_schema(download_url="https://example.com/schema.zip")
+    )
+
+    assert document.extraction_status == "EXTRACTED"
+    assert "=== arquivo: schemas/a.xsd ===" in document.content_text
+    assert "=== arquivo: schemas/b.xsd ===" in document.content_text
+    assert "<xs:schema>A</xs:schema>" in document.content_text
+    assert "<xs:schema>B</xs:schema>" in document.content_text
+
+
+def test_deve_ordenar_arquivos_do_zip_svrs_por_caminho(monkeypatch, tmp_path):
+    zip_path = criar_zip_schema(
+        tmp_path,
+        {
+            "schemas/z.xsd": "<xs:schema>Z</xs:schema>",
+            "schemas/a.xsd": "<xs:schema>A</xs:schema>",
+            "schemas/m.xsd": "<xs:schema>M</xs:schema>"
+        }
+    )
+    monkeypatch.setattr(
+        document_extraction_service.svrs_collector,
+        "download_document",
+        lambda url, filename: str(zip_path)
+    )
+
+    document = document_extraction_service.extract_publication_document(
+        criar_publicacao_schema(download_url="https://example.com/schema.zip")
+    )
+
+    assert document.content_text.index("schemas/a.xsd") < (
+        document.content_text.index("schemas/m.xsd")
+    )
+    assert document.content_text.index("schemas/m.xsd") < (
+        document.content_text.index("schemas/z.xsd")
+    )
+
+
+def test_hash_do_zip_svrs_deve_ser_deterministico(monkeypatch, tmp_path):
+    primeiro_zip = criar_zip_schema(
+        tmp_path,
+        {
+            "schemas/b.xsd": "<xs:schema>B</xs:schema>",
+            "schemas/a.xsd": "<xs:schema>A</xs:schema>"
+        },
+        filename="primeiro.zip"
+    )
+    segundo_zip = criar_zip_schema(
+        tmp_path,
+        {
+            "schemas/a.xsd": "<xs:schema>A</xs:schema>",
+            "schemas/b.xsd": "<xs:schema>B</xs:schema>"
+        },
+        filename="segundo.zip"
+    )
+    caminhos = iter([str(primeiro_zip), str(segundo_zip)])
+    monkeypatch.setattr(
+        document_extraction_service.svrs_collector,
+        "download_document",
+        lambda url, filename: next(caminhos)
+    )
+    publication = criar_publicacao_schema(
+        download_url="https://example.com/schema.zip"
+    )
+
+    primeiro = document_extraction_service.extract_publication_document(
+        publication
+    )
+    segundo = document_extraction_service.extract_publication_document(
+        publication
+    )
+
+    assert primeiro.content_text == segundo.content_text
+    assert primeiro.content_hash == segundo.content_hash
+    assert primeiro.content_length == segundo.content_length
+
+
+def test_zip_svrs_deve_aceitar_xsd_e_xml_case_insensitive(
+    monkeypatch,
+    tmp_path
+):
+    zip_path = criar_zip_schema(
+        tmp_path,
+        {
+            "schemas/A.XSD": "<xs:schema>A</xs:schema>",
+            "schemas/B.Xml": "<root>B</root>",
+            "schemas/ignorado.txt": "ignorar"
+        }
+    )
+    monkeypatch.setattr(
+        document_extraction_service.svrs_collector,
+        "download_document",
+        lambda url, filename: str(zip_path)
+    )
+
+    document = document_extraction_service.extract_publication_document(
+        criar_publicacao_schema(download_url="https://example.com/schema.zip")
+    )
+
+    assert "schemas/A.XSD" in document.content_text
+    assert "schemas/B.Xml" in document.content_text
+    assert "ignorado.txt" not in document.content_text
+
+
+def test_zip_svrs_sem_xsd_ou_xml_deve_retornar_empty(monkeypatch, tmp_path):
+    zip_path = criar_zip_schema(
+        tmp_path,
+        {
+            "schemas/readme.txt": "sem schema"
+        }
+    )
+    monkeypatch.setattr(
+        document_extraction_service.svrs_collector,
+        "download_document",
+        lambda url, filename: str(zip_path)
+    )
+
+    document = document_extraction_service.extract_publication_document(
+        criar_publicacao_schema(download_url="https://example.com/schema.zip")
+    )
+
+    assert document.extraction_status == "EMPTY"
+    assert document.content_text == ""
+    assert document.content_length == 0
+    assert document.content_hash is None
+    assert document.extractor_version == "svrs-schema-zip-v1"
+
+
+def test_zip_svrs_corrompido_deve_retornar_failed(monkeypatch, tmp_path):
+    zip_path = tmp_path / "corrompido.zip"
+    zip_path.write_bytes(b"PK\x03\x04conteudo invalido")
+    monkeypatch.setattr(
+        document_extraction_service.svrs_collector,
+        "download_document",
+        lambda url, filename: str(zip_path)
+    )
+
+    document = document_extraction_service.extract_publication_document(
+        criar_publicacao_schema(download_url="https://example.com/schema.zip")
+    )
+
+    assert document.extraction_status == "FAILED"
+    assert document.extractor_version == "svrs-schema-zip-v1"
+    assert document.extraction_error is not None
+
+
+def test_zip_svrs_deve_bloquear_path_traversal(monkeypatch, tmp_path):
+    zip_path = criar_zip_schema(
+        tmp_path,
+        {
+            "../arquivo.xsd": "<xs:schema/>"
+        }
+    )
+    monkeypatch.setattr(
+        document_extraction_service.svrs_collector,
+        "download_document",
+        lambda url, filename: str(zip_path)
+    )
+
+    document = document_extraction_service.extract_publication_document(
+        criar_publicacao_schema(download_url="https://example.com/schema.zip")
+    )
+
+    assert document.extraction_status == "FAILED"
+    assert "caminho inseguro" in document.extraction_error
+
+
+def test_zip_svrs_deve_bloquear_path_traversal_com_barra_invertida(
+    monkeypatch,
+    tmp_path
+):
+    zip_path = criar_zip_schema(
+        tmp_path,
+        {
+            "..\\arquivo.xsd": "<xs:schema/>"
+        }
+    )
+    monkeypatch.setattr(
+        document_extraction_service.svrs_collector,
+        "download_document",
+        lambda url, filename: str(zip_path)
+    )
+
+    document = document_extraction_service.extract_publication_document(
+        criar_publicacao_schema(download_url="https://example.com/schema.zip")
+    )
+
+    assert document.extraction_status == "FAILED"
+    assert "caminho inseguro" in document.extraction_error
+
+
+def test_zip_svrs_deve_bloquear_caminho_absoluto(monkeypatch, tmp_path):
+    zip_path = criar_zip_schema(
+        tmp_path,
+        {
+            "/arquivo.xsd": "<xs:schema/>"
+        }
+    )
+    monkeypatch.setattr(
+        document_extraction_service.svrs_collector,
+        "download_document",
+        lambda url, filename: str(zip_path)
+    )
+
+    document = document_extraction_service.extract_publication_document(
+        criar_publicacao_schema(download_url="https://example.com/schema.zip")
+    )
+
+    assert document.extraction_status == "FAILED"
+    assert "caminho inseguro" in document.extraction_error
+
+
+def test_zip_svrs_deve_bloquear_quantidade_excessiva_de_arquivos(
+    monkeypatch,
+    tmp_path
+):
+    arquivos = {
+        f"schemas/{indice}.xsd": "<xs:schema/>"
+        for indice in range(
+            document_extraction_service.SVRS_SCHEMA_ZIP_MAX_FILES + 1
+        )
+    }
+    zip_path = criar_zip_schema(tmp_path, arquivos)
+    monkeypatch.setattr(
+        document_extraction_service.svrs_collector,
+        "download_document",
+        lambda url, filename: str(zip_path)
+    )
+
+    document = document_extraction_service.extract_publication_document(
+        criar_publicacao_schema(download_url="https://example.com/schema.zip")
+    )
+
+    assert document.extraction_status == "FAILED"
+    assert "quantidade de arquivos excede o limite" in (
+        document.extraction_error
+    )
+
+
+def test_zip_svrs_deve_bloquear_tamanho_total_excessivo(
+    monkeypatch,
+    tmp_path
+):
+    zip_path = criar_zip_schema(
+        tmp_path,
+        {
+            "schemas/grande.xsd": "A" * (
+                document_extraction_service
+                .SVRS_SCHEMA_ZIP_MAX_TOTAL_UNCOMPRESSED_BYTES + 1
+            )
+        },
+        compression=zipfile.ZIP_STORED
+    )
+    monkeypatch.setattr(
+        document_extraction_service.svrs_collector,
+        "download_document",
+        lambda url, filename: str(zip_path)
+    )
+
+    document = document_extraction_service.extract_publication_document(
+        criar_publicacao_schema(download_url="https://example.com/schema.zip")
+    )
+
+    assert document.extraction_status == "FAILED"
+    assert "tamanho total descompactado excede o limite" in (
+        document.extraction_error
+    )
+
+
+def test_zip_svrs_deve_bloquear_arquivo_individual_excessivo(
+    monkeypatch,
+    tmp_path
+):
+    zip_path = criar_zip_schema(
+        tmp_path,
+        {
+            "schemas/grande.xsd": "A" * (
+                document_extraction_service
+                .SVRS_SCHEMA_ZIP_MAX_FILE_UNCOMPRESSED_BYTES + 1
+            )
+        },
+        compression=zipfile.ZIP_STORED
+    )
+    monkeypatch.setattr(
+        document_extraction_service.svrs_collector,
+        "download_document",
+        lambda url, filename: str(zip_path)
+    )
+
+    document = document_extraction_service.extract_publication_document(
+        criar_publicacao_schema(download_url="https://example.com/schema.zip")
+    )
+
+    assert document.extraction_status == "FAILED"
+    assert "arquivo interno excede o limite" in document.extraction_error
+
+
+def test_zip_svrs_deve_bloquear_razao_de_compressao_anormal(
+    monkeypatch,
+    tmp_path
+):
+    zip_path = criar_zip_schema(
+        tmp_path,
+        {
+            "schemas/bomba.xsd": "A" * 200_000
+        },
+        compression=zipfile.ZIP_DEFLATED
+    )
+    monkeypatch.setattr(
+        document_extraction_service.svrs_collector,
+        "download_document",
+        lambda url, filename: str(zip_path)
+    )
+
+    document = document_extraction_service.extract_publication_document(
+        criar_publicacao_schema(download_url="https://example.com/schema.zip")
+    )
+
+    assert document.extraction_status == "FAILED"
+    assert "razao de compressao excede o limite" in (
+        document.extraction_error
+    )
+
+
+def test_pdf_svrs_deve_continuar_usando_pypdf(monkeypatch, tmp_path):
+    pdf_path = tmp_path / "documento.pdf"
+    pdf_path.write_bytes(b"%PDF-1.7\nconteudo")
+    chamadas = []
+    monkeypatch.setattr(
+        document_extraction_service.svrs_collector,
+        "download_document",
+        lambda url, filename: str(pdf_path)
+    )
+
+    def extrair_pdf(file_path):
+        chamadas.append(file_path)
+        return "Texto PDF"
+
+    monkeypatch.setattr(
+        document_extraction_service.svrs_collector,
+        "extract_pdf_text",
+        extrair_pdf
+    )
+    monkeypatch.setattr(
+        document_extraction_service.svrs_collector,
+        "normalize_text",
+        lambda text: text
+    )
+
+    document = document_extraction_service.extract_publication_document(
+        criar_publicacao(download_url="https://example.com/documento.pdf")
+    )
+
+    assert document.extraction_status == "EXTRACTED"
+    assert document.extractor_version == "svrs-pypdf-v1"
+    assert chamadas == [str(pdf_path)]
+
+
+def test_xlsx_svrs_nao_deve_ser_enviado_ao_pypdf(monkeypatch, tmp_path):
+    xlsx_path = tmp_path / "tabela.xlsx"
+    xlsx_path.write_bytes(b"PK\x03\x04xlsx")
+    monkeypatch.setattr(
+        document_extraction_service.svrs_collector,
+        "download_document",
+        lambda url, filename: str(xlsx_path)
+    )
+    monkeypatch.setattr(
+        document_extraction_service.svrs_collector,
+        "extract_pdf_text",
+        lambda file_path: (_ for _ in ()).throw(
+            AssertionError("XLSX nao deve usar pypdf")
+        )
+    )
+
+    document = document_extraction_service.extract_publication_document(
+        criar_publicacao(
+            download_url="https://example.com/tabela.xlsx"
+        )
+    )
+
+    assert document.extraction_status == "PENDING"
+    assert document.extractor_version is None
+    assert document.extraction_error == "formato ainda nao suportado: xlsx"
 
 
 def test_deve_extrair_html_da_receita_sem_usar_fluxo_pdf(monkeypatch):
@@ -743,6 +1188,32 @@ def criar_publicacao(download_url: str | None) -> Publication:
         published_at=datetime.now(),
         download_url=download_url
     )
+
+
+def criar_publicacao_schema(download_url: str | None) -> Publication:
+    return Publication(
+        external_id="f" * 64,
+        source="SVRS",
+        title="Pacote de schemas - NT 2022.002 v1.30",
+        document_type="SCHEMA",
+        published_at=datetime.now(),
+        download_url=download_url
+    )
+
+
+def criar_zip_schema(
+    tmp_path: Path,
+    files: dict[str, str],
+    filename: str = "schema.zip",
+    compression: int = zipfile.ZIP_DEFLATED
+) -> Path:
+    zip_path = tmp_path / filename
+
+    with zipfile.ZipFile(zip_path, "w", compression=compression) as archive:
+        for path, content in files.items():
+            archive.writestr(path, content)
+
+    return zip_path
 
 
 def criar_publicacao_dou(download_url: str | None) -> Publication:
