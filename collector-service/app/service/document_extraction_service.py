@@ -20,6 +20,18 @@ PORTAL_NFE_EXTRACTOR_VERSION = "portal-nfe-pypdf-v1"
 DOU_EXTRACTOR_VERSION = "dou-html-v1"
 
 
+def get_extractor_version_for_source(source: str) -> str | None:
+    extractor_versions = {
+        "SVRS": EXTRACTOR_VERSION,
+        "RECEITA_FEDERAL": receita_collector.HTML_EXTRACTOR_VERSION,
+        "CGIBS": CGIBS_EXTRACTOR_VERSION,
+        "PORTAL_NFE": PORTAL_NFE_EXTRACTOR_VERSION,
+        "IMPRENSA_NACIONAL_DOU": DOU_EXTRACTOR_VERSION
+    }
+
+    return extractor_versions.get(source)
+
+
 def extract_publication_document(
     publication: Publication
 ) -> PublicationDocument:

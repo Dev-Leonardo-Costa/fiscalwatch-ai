@@ -10,6 +10,7 @@ from app.collectors.svrs_collector import get_publications
 from app.messaging.publication_event_publisher import publish_publication_event
 from app.model.publication_document import PublicationDocument
 from app.service.document_extraction_service import extract_publication_document
+from app.service.document_extraction_service import get_extractor_version_for_source
 from app.model.publication_event import (
     PUBLICATION_DISCOVERED,
     PublicationEvent
@@ -25,7 +26,9 @@ def dispatch_publication(publication) -> dict:
             source_url=publication.download_url,
             extraction_status="FAILED",
             extraction_error=str(exception).splitlines()[0][:200],
-            extractor_version="svrs-pypdf-v1",
+            extractor_version=get_extractor_version_for_source(
+                publication.source
+            ),
             extracted_at=datetime.now()
         )
 

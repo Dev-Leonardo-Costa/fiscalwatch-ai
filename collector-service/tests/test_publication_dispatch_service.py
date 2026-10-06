@@ -164,6 +164,101 @@ def test_falha_em_um_documento_nao_impede_publicacao_dos_demais(
     assert eventos_publicados[1].document.extraction_status == "EXTRACTED"
 
 
+def test_erro_inesperado_no_dispatch_svrs_mantem_extrator_svrs(
+    monkeypatch
+):
+    resultado, evento = despachar_com_erro_inesperado(
+        monkeypatch,
+        criar_publicacao(
+            external_id="8" * 64,
+            title="Nota Técnica 2026.012 v1.00",
+            download_url="https://example.com/nota.pdf"
+        )
+    )
+
+    assert resultado["document"]["extraction_status"] == "FAILED"
+    assert resultado["document"]["extractor_version"] == "svrs-pypdf-v1"
+    assert evento.document.extractor_version == "svrs-pypdf-v1"
+
+
+def test_erro_inesperado_no_dispatch_dou_nao_usa_extrator_svrs(
+    monkeypatch
+):
+    resultado, evento = despachar_com_erro_inesperado(
+        monkeypatch,
+        criar_publicacao_dou(
+            external_id="9" * 64,
+            title="ATO TÉCNICO CONJUNTO RFB/SUARA/CGIBS Nº 4",
+            document_type="ATO_TECNICO",
+            description="Documentação técnica aplicável à CBS e ao IBS.",
+            download_url="https://www.in.gov.br/web/dou/-/ato-tecnico"
+        )
+    )
+
+    assert resultado["document"]["extraction_status"] == "FAILED"
+    assert resultado["document"]["extractor_version"] == "dou-html-v1"
+    assert evento.document.extractor_version == "dou-html-v1"
+
+
+def test_erro_inesperado_no_dispatch_receita_nao_usa_extrator_svrs(
+    monkeypatch
+):
+    resultado, evento = despachar_com_erro_inesperado(
+        monkeypatch,
+        criar_publicacao_receita(
+            external_id="0" * 64,
+            title="Receita Federal publica documentação técnica",
+            download_url="https://www.gov.br/receitafederal/noticia"
+        )
+    )
+
+    assert resultado["document"]["extraction_status"] == "FAILED"
+    assert resultado["document"]["extractor_version"] == "receita-html-v1"
+    assert evento.document.extractor_version == "receita-html-v1"
+
+
+def test_erro_inesperado_no_dispatch_cgibs_nao_usa_extrator_svrs(
+    monkeypatch
+):
+    resultado, evento = despachar_com_erro_inesperado(
+        monkeypatch,
+        criar_publicacao_cgibs(
+            external_id="1" * 63 + "a",
+            title="Declaração de Regimes Específicos (DeRE)",
+            download_url=(
+                "https://www.cgibs.gov.br/"
+                "declaracao-de-regimes-especificos-dere"
+            )
+        )
+    )
+
+    assert resultado["document"]["extraction_status"] == "FAILED"
+    assert resultado["document"]["extractor_version"] == "cgibs-pypdf-v1"
+    assert evento.document.extractor_version == "cgibs-pypdf-v1"
+
+
+def test_erro_inesperado_no_dispatch_nfe_nao_usa_extrator_svrs(
+    monkeypatch
+):
+    resultado, evento = despachar_com_erro_inesperado(
+        monkeypatch,
+        criar_publicacao_nfe(
+            external_id="2" * 63 + "a",
+            title="Nota Técnica 2026.007 v1.10",
+            download_url=(
+                "https://www.nfe.fazenda.gov.br/portal/"
+                "exibirArquivo.aspx?conteudo=abc"
+            )
+        )
+    )
+
+    assert resultado["document"]["extraction_status"] == "FAILED"
+    assert resultado["document"]["extractor_version"] == (
+        "portal-nfe-pypdf-v1"
+    )
+    assert evento.document.extractor_version == "portal-nfe-pypdf-v1"
+
+
 def test_dispatch_unitario_encontra_publicacao_correta(monkeypatch):
     primeira_publicacao = criar_publicacao(
         external_id="e" * 64,
@@ -1092,3 +1187,34 @@ def criar_publicacao_dou(
         description=description,
         download_url=download_url
     )
+
+
+def despachar_com_erro_inesperado(
+    monkeypatch,
+    publicacao: Publication
+):
+    eventos_publicados = []
+
+    def falhar_extracao(_publication):
+        raise RuntimeError("falha inesperada")
+
+    monkeypatch.setattr(
+        publication_dispatch_service,
+        "extract_publication_document",
+        falhar_extracao
+    )
+    monkeypatch.setattr(
+        publication_dispatch_service,
+        "publish_publication_event",
+        eventos_publicados.append
+    )
+
+    resultado = publication_dispatch_service.dispatch_publication(publicacao)
+
+    assert len(eventos_publicados) == 1
+    assert resultado["document"]["extraction_error"] == "falha inesperada"
+    assert eventos_publicados[0].document.extraction_error == (
+        "falha inesperada"
+    )
+
+    return resultado, eventos_publicados[0]
