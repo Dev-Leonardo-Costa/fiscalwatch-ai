@@ -264,3 +264,102 @@ def test_endpoint_dispatch_cgibs_unitario_retorna_404_quando_nao_encontrado(
         "published": 0,
         "external_id": external_id
     }
+
+
+def test_endpoint_dispatch_nfe_deve_retornar_200(monkeypatch):
+    monkeypatch.setattr(
+        main,
+        "dispatch_nfe_publications",
+        lambda: {
+            "source": "PORTAL_NFE",
+            "collected": 2,
+            "published": 2
+        },
+        raising=False
+    )
+
+    response = client.post("/dispatch/nfe")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "source": "PORTAL_NFE",
+        "collected": 2,
+        "published": 2
+    }
+
+
+def test_endpoint_dispatch_nfe_unitario_deve_retornar_200(monkeypatch):
+    external_id = "1" * 64
+
+    monkeypatch.setattr(
+        main,
+        "dispatch_nfe_publication_by_external_id",
+        lambda requested_external_id: {
+            "source": "PORTAL_NFE",
+            "status": "PUBLISHED",
+            "published": 1,
+            "publication": {
+                "external_id": requested_external_id,
+                "title": "Nota Técnica 2026.007 v1.10",
+                "download_url": (
+                    "https://www.nfe.fazenda.gov.br/portal/"
+                    "exibirArquivo.aspx?conteudo=abc"
+                )
+            },
+            "document": {
+                "extraction_status": "EXTRACTED",
+                "content_length": 28994,
+                "content_hash": "hash-nfe",
+                "extraction_error": None,
+                "extractor_version": "portal-nfe-pypdf-v1",
+                "extracted_at": "2026-10-05T23:18:10"
+            }
+        },
+        raising=False
+    )
+
+    response = client.post(
+        f"/dispatch/nfe/publications/{external_id}"
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["source"] == "PORTAL_NFE"
+    assert payload["status"] == "PUBLISHED"
+    assert payload["published"] == 1
+    assert payload["publication"]["external_id"] == external_id
+    assert payload["document"]["extraction_status"] == "EXTRACTED"
+    assert payload["document"]["extractor_version"] == (
+        "portal-nfe-pypdf-v1"
+    )
+    assert "content_text" not in payload["document"]
+
+
+def test_endpoint_dispatch_nfe_unitario_deve_retornar_404_quando_nao_encontrado(
+    monkeypatch
+):
+    external_id = "2" * 64
+
+    monkeypatch.setattr(
+        main,
+        "dispatch_nfe_publication_by_external_id",
+        lambda requested_external_id: {
+            "source": "PORTAL_NFE",
+            "status": "NOT_FOUND",
+            "published": 0,
+            "external_id": requested_external_id
+        },
+        raising=False
+    )
+
+    response = client.post(
+        f"/dispatch/nfe/publications/{external_id}"
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == {
+        "source": "PORTAL_NFE",
+        "status": "NOT_FOUND",
+        "published": 0,
+        "external_id": external_id
+    }

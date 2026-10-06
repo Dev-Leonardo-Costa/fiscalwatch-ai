@@ -624,6 +624,189 @@ def test_dispatch_cgibs_unitario_external_id_inexistente_nao_publica(
     assert eventos_publicados == []
 
 
+def test_deve_publicar_evento_para_cada_publicacao_nfe(monkeypatch):
+    primeira_publicacao = criar_publicacao_nfe(
+        external_id="u" * 64,
+        title="Nota Técnica 2026.007 v1.10",
+        download_url=(
+            "https://www.nfe.fazenda.gov.br/portal/"
+            "exibirArquivo.aspx?conteudo=abc"
+        )
+    )
+    segunda_publicacao = criar_publicacao_nfe(
+        external_id="v" * 64,
+        title="Nota Técnica 2026.008 v1.00",
+        download_url=(
+            "https://www.nfe.fazenda.gov.br/portal/"
+            "exibirArquivo.aspx?conteudo=def"
+        )
+    )
+    publicacoes_obtidas = []
+    publicacoes_despachadas = []
+
+    def obter_publicacoes():
+        publicacoes_obtidas.append(True)
+        return [primeira_publicacao, segunda_publicacao]
+
+    monkeypatch.setattr(
+        publication_dispatch_service,
+        "get_nfe_publications",
+        obter_publicacoes,
+        raising=False
+    )
+    monkeypatch.setattr(
+        publication_dispatch_service,
+        "dispatch_publication",
+        publicacoes_despachadas.append
+    )
+
+    resultado = publication_dispatch_service.dispatch_nfe_publications()
+
+    assert publicacoes_obtidas == [True]
+    assert publicacoes_despachadas == [
+        primeira_publicacao,
+        segunda_publicacao
+    ]
+    assert resultado == {
+        "source": "PORTAL_NFE",
+        "collected": 2,
+        "published": 2
+    }
+
+
+def test_deve_retornar_zero_quando_nao_houver_publicacoes_nfe(
+    monkeypatch
+):
+    publicacoes_despachadas = []
+
+    monkeypatch.setattr(
+        publication_dispatch_service,
+        "get_nfe_publications",
+        lambda: [],
+        raising=False
+    )
+    monkeypatch.setattr(
+        publication_dispatch_service,
+        "dispatch_publication",
+        publicacoes_despachadas.append
+    )
+
+    resultado = publication_dispatch_service.dispatch_nfe_publications()
+
+    assert resultado == {
+        "source": "PORTAL_NFE",
+        "collected": 0,
+        "published": 0
+    }
+    assert publicacoes_despachadas == []
+
+
+def test_dispatch_nfe_unitario_deve_encontrar_publicacao_correta(
+    monkeypatch
+):
+    primeira_publicacao = criar_publicacao_nfe(
+        external_id="w" * 64,
+        title="Nota Técnica 2026.007 v1.10",
+        download_url=(
+            "https://www.nfe.fazenda.gov.br/portal/"
+            "exibirArquivo.aspx?conteudo=ghi"
+        )
+    )
+    segunda_publicacao = criar_publicacao_nfe(
+        external_id="x" * 64,
+        title="Nota Técnica 2026.008 v1.00",
+        download_url=(
+            "https://www.nfe.fazenda.gov.br/portal/"
+            "exibirArquivo.aspx?conteudo=jkl"
+        )
+    )
+    publicacoes_despachadas = []
+    resultado_dispatch = {
+        "source": "PORTAL_NFE",
+        "status": "PUBLISHED",
+        "published": 1,
+        "publication": {
+            "external_id": primeira_publicacao.external_id,
+            "title": primeira_publicacao.title,
+            "download_url": primeira_publicacao.download_url
+        },
+        "document": {
+            "extraction_status": "EXTRACTED",
+            "content_length": 123,
+            "content_hash": "hash-nfe",
+            "extraction_error": None,
+            "extractor_version": "portal-nfe-pypdf-v1",
+            "extracted_at": datetime.now()
+        }
+    }
+
+    monkeypatch.setattr(
+        publication_dispatch_service,
+        "get_nfe_publications",
+        lambda: [primeira_publicacao, segunda_publicacao],
+        raising=False
+    )
+
+    def despachar(publication):
+        publicacoes_despachadas.append(publication)
+        return resultado_dispatch
+
+    monkeypatch.setattr(
+        publication_dispatch_service,
+        "dispatch_publication",
+        despachar
+    )
+
+    resultado = (
+        publication_dispatch_service
+        .dispatch_nfe_publication_by_external_id(
+            primeira_publicacao.external_id
+        )
+    )
+
+    assert resultado == resultado_dispatch
+    assert publicacoes_despachadas == [primeira_publicacao]
+
+
+def test_dispatch_nfe_unitario_external_id_inexistente_nao_deve_publicar(
+    monkeypatch
+):
+    publicacao = criar_publicacao_nfe(
+        external_id="y" * 64,
+        title="Nota Técnica 2026.007 v1.10",
+        download_url=(
+            "https://www.nfe.fazenda.gov.br/portal/"
+            "exibirArquivo.aspx?conteudo=mno"
+        )
+    )
+    publicacoes_despachadas = []
+
+    monkeypatch.setattr(
+        publication_dispatch_service,
+        "get_nfe_publications",
+        lambda: [publicacao],
+        raising=False
+    )
+    monkeypatch.setattr(
+        publication_dispatch_service,
+        "dispatch_publication",
+        publicacoes_despachadas.append
+    )
+
+    resultado = (
+        publication_dispatch_service
+        .dispatch_nfe_publication_by_external_id("z" * 64)
+    )
+
+    assert resultado == {
+        "source": "PORTAL_NFE",
+        "status": "NOT_FOUND",
+        "published": 0,
+        "external_id": "z" * 64
+    }
+    assert publicacoes_despachadas == []
+
+
 def criar_publicacao(
     external_id: str,
     title: str,
@@ -632,6 +815,21 @@ def criar_publicacao(
     return Publication(
         external_id=external_id,
         source="SVRS",
+        title=title,
+        document_type="NOTA_TECNICA",
+        published_at=datetime.now(),
+        download_url=download_url
+    )
+
+
+def criar_publicacao_nfe(
+    external_id: str,
+    title: str,
+    download_url: str
+) -> Publication:
+    return Publication(
+        external_id=external_id,
+        source="PORTAL_NFE",
         title=title,
         document_type="NOTA_TECNICA",
         published_at=datetime.now(),

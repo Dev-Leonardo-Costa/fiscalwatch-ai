@@ -12,6 +12,7 @@ from app.model.publication_document import PublicationDocument
 
 EXTRACTOR_VERSION = "svrs-pypdf-v1"
 CGIBS_EXTRACTOR_VERSION = "cgibs-pypdf-v1"
+PORTAL_NFE_EXTRACTOR_VERSION = "portal-nfe-pypdf-v1"
 
 
 def extract_publication_document(
@@ -23,6 +24,19 @@ def extract_publication_document(
     if publication.source == "CGIBS":
         return _extract_cgibs_pdf_document(publication)
 
+    if publication.source == "PORTAL_NFE":
+        return _extract_direct_pdf_document(
+            publication,
+            PORTAL_NFE_EXTRACTOR_VERSION
+        )
+
+    return _extract_direct_pdf_document(publication, EXTRACTOR_VERSION)
+
+
+def _extract_direct_pdf_document(
+    publication: Publication,
+    extractor_version: str
+) -> PublicationDocument:
     if not publication.download_url:
         return PublicationDocument(
             source_url=None,
@@ -48,7 +62,7 @@ def extract_publication_document(
                 content_length=0,
                 extraction_status="EMPTY",
                 extraction_error=None,
-                extractor_version=EXTRACTOR_VERSION,
+                extractor_version=extractor_version,
                 extracted_at=extracted_at
             )
 
@@ -61,7 +75,7 @@ def extract_publication_document(
             content_length=len(normalized_text),
             extraction_status="EXTRACTED",
             extraction_error=None,
-            extractor_version=EXTRACTOR_VERSION,
+            extractor_version=extractor_version,
             extracted_at=extracted_at
         )
 
@@ -70,7 +84,7 @@ def extract_publication_document(
             source_url=publication.download_url,
             extraction_status="FAILED",
             extraction_error=_safe_error_message(exception),
-            extractor_version=EXTRACTOR_VERSION,
+            extractor_version=extractor_version,
             extracted_at=datetime.now()
         )
 

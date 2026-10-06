@@ -386,11 +386,124 @@ def test_deve_retornar_failed_para_cgibs_quando_download_ou_extracao_falhar(
     assert document.extracted_at is not None
 
 
+def test_deve_gerar_publication_document_extraido_para_portal_nfe(
+    monkeypatch,
+    tmp_path
+):
+    pdf_url = (
+        "https://www.nfe.fazenda.gov.br/portal/"
+        "exibirArquivo.aspx?conteudo=abc"
+    )
+    extracted_text = " Texto   extraido \n\n\n da NF-e "
+    normalized_text = "Texto extraido\nda NF-e"
+    pdf_path = tmp_path / "nota-tecnica-nfe.pdf"
+    pdf_path.write_bytes(b"%PDF")
+
+    def baixar_pdf(url, filename):
+        assert url == pdf_url
+        return str(pdf_path)
+
+    monkeypatch.setattr(
+        document_extraction_service.svrs_collector,
+        "download_document",
+        baixar_pdf
+    )
+    monkeypatch.setattr(
+        document_extraction_service.svrs_collector,
+        "extract_pdf_text",
+        lambda file_path: extracted_text
+    )
+    monkeypatch.setattr(
+        document_extraction_service.svrs_collector,
+        "normalize_text",
+        lambda text: normalized_text
+    )
+
+    publication = criar_publicacao_portal_nfe(download_url=pdf_url)
+
+    document = document_extraction_service.extract_publication_document(
+        publication
+    )
+
+    assert document.extraction_status == "EXTRACTED"
+    assert document.source_url == pdf_url
+    assert document.content_text == normalized_text
+    assert document.content_hash == hashlib.sha256(
+        normalized_text.encode("utf-8")
+    ).hexdigest()
+    assert document.content_length == len(normalized_text)
+    assert document.extraction_error is None
+    assert document.extractor_version == "portal-nfe-pypdf-v1"
+    assert document.extracted_at is not None
+    assert pdf_path.exists() is False
+
+
+def test_deve_retornar_pending_para_portal_nfe_sem_download_url():
+    publication = criar_publicacao_portal_nfe(download_url=None)
+
+    document = document_extraction_service.extract_publication_document(
+        publication
+    )
+
+    assert document.extraction_status == "PENDING"
+    assert document.source_url is None
+    assert document.content_text is None
+    assert document.content_hash is None
+    assert document.content_length is None
+    assert document.extraction_error is None
+
+
+def test_deve_retornar_failed_para_portal_nfe_quando_download_ou_extracao_falhar(
+    monkeypatch
+):
+    pdf_url = (
+        "https://www.nfe.fazenda.gov.br/portal/"
+        "exibirArquivo.aspx?conteudo=erro"
+    )
+
+    def falhar_download(url, filename):
+        assert url == pdf_url
+        raise RuntimeError("download nfe indisponivel\nstack trace")
+
+    monkeypatch.setattr(
+        document_extraction_service.svrs_collector,
+        "download_document",
+        falhar_download
+    )
+
+    publication = criar_publicacao_portal_nfe(download_url=pdf_url)
+
+    document = document_extraction_service.extract_publication_document(
+        publication
+    )
+
+    assert document.extraction_status == "FAILED"
+    assert document.source_url == pdf_url
+    assert document.content_text is None
+    assert document.content_hash is None
+    assert document.content_length is None
+    assert document.extraction_error == "download nfe indisponivel"
+    assert "\n" not in document.extraction_error
+    assert document.extractor_version == "portal-nfe-pypdf-v1"
+    assert document.extracted_at is not None
+
+
 def criar_publicacao(download_url: str | None) -> Publication:
     return Publication(
         external_id="a" * 64,
         source="SVRS",
         title="Nota Técnica 2026.009 v1.00",
+        document_type="NOTA_TECNICA",
+        published_at=datetime.now(),
+        download_url=download_url
+    )
+
+
+def criar_publicacao_portal_nfe(download_url: str | None) -> Publication:
+    return Publication(
+        external_id="d" * 64,
+        source="PORTAL_NFE",
+        title="Nota Técnica 2026.001 v1.00",
         document_type="NOTA_TECNICA",
         published_at=datetime.now(),
         download_url=download_url

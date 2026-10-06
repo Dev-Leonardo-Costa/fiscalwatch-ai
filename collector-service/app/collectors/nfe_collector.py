@@ -31,6 +31,8 @@ def fetch_nfe_portal_page() -> str:
 
     response.raise_for_status()
 
+    return response.text
+
 
 NFE_NOTAS_TECNICAS_URL = (
     "https://www.nfe.fazenda.gov.br/portal/"
@@ -61,6 +63,13 @@ def fetch_nfe_notas_tecnicas_page() -> str:
     return response.text
 
 
+def get_nfe_publications() -> list[Publication]:
+    html = fetch_nfe_notas_tecnicas_page()
+    notas = parse_nfe_notas_tecnicas_links(html)
+
+    return parse_nfe_publications(notas)
+
+
 def parse_nfe_notas_tecnicas_links(html: str) -> list[dict]:
 
     soup = BeautifulSoup(html, "html.parser")
@@ -71,8 +80,9 @@ def parse_nfe_notas_tecnicas_links(html: str) -> list[dict]:
 
         text = link.get_text(" ", strip=True)
         href = link.get("href")
+        comparable_text = " ".join(text.lower().split())
 
-        if "nota técnica" in text.lower() or "nt " in text.lower():
+        if "nota técnica" in comparable_text or "nt " in comparable_text:
 
             notas.append({
                 "title": text,
