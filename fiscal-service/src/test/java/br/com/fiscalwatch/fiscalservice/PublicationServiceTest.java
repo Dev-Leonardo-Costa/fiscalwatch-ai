@@ -1,6 +1,7 @@
 package br.com.fiscalwatch.fiscalservice;
 
 import br.com.fiscalwatch.fiscalservice.publication.dto.PublicationRequest;
+import br.com.fiscalwatch.fiscalservice.publication.dto.PublicationHistoryResponse;
 import br.com.fiscalwatch.fiscalservice.publication.entity.PublicationDocumentEntity;
 import br.com.fiscalwatch.fiscalservice.publication.entity.PublicationEntity;
 import br.com.fiscalwatch.fiscalservice.publication.enums.DocumentType;
@@ -21,6 +22,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.UUID;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -247,28 +249,190 @@ class PublicationServiceTest {
         );
     }
 
+    @Test
+    void deveListarHistoricoComDocumentoPorSourceEDocumentType() {
+        String source = uniqueSource();
+        PublicationEvent schemaEvent = criarEvento(
+                "history-schema",
+                source,
+                DocumentType.SCHEMA,
+                LocalDateTime.of(2026, 1, 2, 0, 0),
+                criarDocumento(ExtractionStatus.EXTRACTED, "Schema extraido")
+        );
+        criarEventoPersistido(
+                "history-nfe",
+                "PORTAL_NFE",
+                DocumentType.SCHEMA,
+                LocalDateTime.of(2026, 1, 3, 0, 0),
+                criarDocumento(ExtractionStatus.EXTRACTED, "Outro source")
+        );
+        criarEventoPersistido(
+                "history-nt",
+                source,
+                DocumentType.NOTA_TECNICA,
+                LocalDateTime.of(2026, 1, 4, 0, 0),
+                criarDocumento(ExtractionStatus.EXTRACTED, "Outro tipo")
+        );
+
+        publicationService.processEvent(schemaEvent);
+
+        List<PublicationHistoryResponse> result =
+                publicationService.findHistory(source, DocumentType.SCHEMA);
+
+        assertEquals(1, result.size());
+        assertEquals(schemaEvent.publication().externalId(),
+                result.get(0).externalId());
+        assertEquals("Schema extraido", result.get(0).document().contentText());
+    }
+
+    @Test
+    void deveRetornarSomentePublicacoesComDocumentoNoHistorico() {
+        String source = uniqueSource();
+        PublicationRequest withoutDocument = criarPublicacao(
+                "history-without-doc",
+                source,
+                DocumentType.SCHEMA,
+                LocalDateTime.of(2026, 1, 1, 0, 0)
+        );
+        publicationService.create(withoutDocument);
+        PublicationEvent withDocument = criarEvento(
+                "history-with-doc",
+                source,
+                DocumentType.SCHEMA,
+                LocalDateTime.of(2026, 1, 2, 0, 0),
+                criarDocumento(ExtractionStatus.EXTRACTED, "Com documento")
+        );
+
+        publicationService.processEvent(withDocument);
+
+        List<PublicationHistoryResponse> result =
+                publicationService.findHistory(source, DocumentType.SCHEMA);
+
+        assertEquals(1, result.size());
+        assertEquals(withDocument.publication().externalId(),
+                result.get(0).externalId());
+    }
+
+    @Test
+    void deveOrdenarHistoricoPorPublishedAtEId() {
+        String source = uniqueSource();
+        PublicationEvent secondByDate = criarEvento(
+                "history-second-date",
+                source,
+                DocumentType.SCHEMA,
+                LocalDateTime.of(2026, 1, 2, 0, 0),
+                criarDocumento(ExtractionStatus.EXTRACTED, "Segundo")
+        );
+        PublicationEvent firstByDate = criarEvento(
+                "history-first-date",
+                source,
+                DocumentType.SCHEMA,
+                LocalDateTime.of(2026, 1, 1, 0, 0),
+                criarDocumento(ExtractionStatus.EXTRACTED, "Primeiro")
+        );
+        PublicationEvent firstById = criarEvento(
+                "history-first-id",
+                source,
+                DocumentType.SCHEMA,
+                LocalDateTime.of(2026, 1, 3, 0, 0),
+                criarDocumento(ExtractionStatus.EXTRACTED, "Id menor")
+        );
+        PublicationEvent secondById = criarEvento(
+                "history-second-id",
+                source,
+                DocumentType.SCHEMA,
+                LocalDateTime.of(2026, 1, 3, 0, 0),
+                criarDocumento(ExtractionStatus.EXTRACTED, "Id maior")
+        );
+
+        publicationService.processEvent(secondByDate);
+        publicationService.processEvent(firstByDate);
+        publicationService.processEvent(firstById);
+        publicationService.processEvent(secondById);
+
+        List<PublicationHistoryResponse> result =
+                publicationService.findHistory(source, DocumentType.SCHEMA);
+
+        assertEquals(firstByDate.publication().externalId(),
+                result.get(0).externalId());
+        assertEquals(secondByDate.publication().externalId(),
+                result.get(1).externalId());
+        assertEquals(firstById.publication().externalId(),
+                result.get(2).externalId());
+        assertEquals(secondById.publication().externalId(),
+                result.get(3).externalId());
+    }
+
     private PublicationEvent criarEvento(
             String suffix,
+            PublicationDocumentEvent document
+    ) {
+        return criarEvento(
+                suffix,
+                "SVRS",
+                DocumentType.NOTA_TECNICA,
+                LocalDateTime.now(),
+                document
+        );
+    }
+
+    private PublicationEvent criarEvento(
+            String suffix,
+            String source,
+            DocumentType documentType,
+            LocalDateTime publishedAt,
             PublicationDocumentEvent document
     ) {
         return new PublicationEvent(
                 "publication.discovered",
                 LocalDateTime.now(),
-                criarPublicacao(suffix),
+                criarPublicacao(suffix, source, documentType, publishedAt),
                 document
         );
     }
 
     private PublicationRequest criarPublicacao(String suffix) {
+        return criarPublicacao(
+                suffix,
+                "SVRS",
+                DocumentType.NOTA_TECNICA,
+                LocalDateTime.now()
+        );
+    }
+
+    private PublicationRequest criarPublicacao(
+            String suffix,
+            String source,
+            DocumentType documentType,
+            LocalDateTime publishedAt
+    ) {
         return new PublicationRequest(
                 uniqueExternalId(),
-                "SVRS",
+                source,
                 "Nota Tecnica 2026.009 v1.00",
-                DocumentType.NOTA_TECNICA,
-                LocalDateTime.now(),
+                documentType,
+                publishedAt,
                 null,
                 "Publicacao utilizada no teste",
                 "https://example.com/nota-tecnica.pdf"
+        );
+    }
+
+    private void criarEventoPersistido(
+            String suffix,
+            String source,
+            DocumentType documentType,
+            LocalDateTime publishedAt,
+            PublicationDocumentEvent document
+    ) {
+        publicationService.processEvent(
+                criarEvento(
+                        suffix,
+                        source,
+                        documentType,
+                        publishedAt,
+                        document
+                )
         );
     }
 
@@ -276,6 +440,12 @@ class PublicationServiceTest {
         return (UUID.randomUUID().toString().replace("-", "")
                 + UUID.randomUUID().toString().replace("-", ""))
                 .substring(0, 64);
+    }
+
+    private String uniqueSource() {
+        return "SVRS_" + UUID.randomUUID().toString()
+                .replace("-", "")
+                .substring(0, 12);
     }
 
     private PublicationDocumentEvent criarDocumento(

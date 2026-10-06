@@ -1,9 +1,12 @@
 package br.com.fiscalwatch.fiscalservice.publication.service;
 
 import br.com.fiscalwatch.fiscalservice.publication.dto.PublicationRequest;
+import br.com.fiscalwatch.fiscalservice.publication.dto.PublicationDocumentHistoryResponse;
+import br.com.fiscalwatch.fiscalservice.publication.dto.PublicationHistoryResponse;
 import br.com.fiscalwatch.fiscalservice.publication.dto.PublicationResponse;
 import br.com.fiscalwatch.fiscalservice.publication.entity.PublicationDocumentEntity;
 import br.com.fiscalwatch.fiscalservice.publication.entity.PublicationEntity;
+import br.com.fiscalwatch.fiscalservice.publication.enums.DocumentType;
 import br.com.fiscalwatch.fiscalservice.publication.exception.PublicationAlreadyExistsException;
 import br.com.fiscalwatch.fiscalservice.publication.exception.PublicationNotFoundException;
 import br.com.fiscalwatch.fiscalservice.publication.mapper.PublicationMapper;
@@ -15,6 +18,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.util.List;
 
 @RequiredArgsConstructor
 @Service
@@ -60,6 +65,19 @@ public class PublicationService {
                 );
 
         return publicationMapper.toResponse(entity);
+    }
+
+    @Transactional(readOnly = true)
+    public List<PublicationHistoryResponse> findHistory(
+            String source,
+            DocumentType documentType
+    ) {
+
+        return publicationDocumentRepository
+                .findHistoryByPublication(source, documentType)
+                .stream()
+                .map(this::toHistoryResponse)
+                .toList();
     }
 
     @Transactional
@@ -110,6 +128,31 @@ public class PublicationService {
         entity.setExtractedAt(document.extractedAt());
 
         return entity;
+    }
+
+    private PublicationHistoryResponse toHistoryResponse(
+            PublicationDocumentEntity document
+    ) {
+
+        PublicationEntity publication = document.getPublication();
+
+        return new PublicationHistoryResponse(
+                publication.getId(),
+                publication.getExternalId(),
+                publication.getSource(),
+                publication.getTitle(),
+                publication.getDocumentType(),
+                publication.getPublishedAt(),
+                publication.getDownloadUrl(),
+                new PublicationDocumentHistoryResponse(
+                        document.getContentText(),
+                        document.getContentHash(),
+                        document.getContentLength(),
+                        document.getExtractionStatus(),
+                        document.getExtractorVersion(),
+                        document.getExtractedAt()
+                )
+        );
     }
 
     private boolean isExternalIdUniqueConstraintViolation(
