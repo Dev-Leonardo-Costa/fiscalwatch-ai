@@ -46,7 +46,10 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -441,8 +444,13 @@ class ImpactAnalysisServiceTest {
         when(publicationRepository.findByExternalId(
                 request.currentExternalId()
         )).thenReturn(Optional.of(publication));
-        when(impactAnalysisRepository.findByPublicationId(publicationId))
-                .thenReturn(List.of());
+        when(impactAnalysisRepository
+                .findFirstByPublicationIdAndAnalysisVersionAndPreviousExternalIdAndComparisonHash(
+                        eq(publicationId),
+                        eq("schema-comparison-v1"),
+                        eq(request.previousExternalId()),
+                        anyString()
+                )).thenReturn(Optional.empty());
         when(publicationDocumentRepository.findByPublicationId(publicationId))
                 .thenReturn(Optional.empty());
         when(schemaChangeImpactAnalyzer.analyze(
@@ -479,6 +487,9 @@ class ImpactAnalysisServiceTest {
 
         assertSame(publication, saved.getPublication());
         assertEquals("schema-comparison-v1", saved.getAnalysisVersion());
+        assertEquals(request.previousExternalId(), saved.getPreviousExternalId());
+        assertNotNull(saved.getComparisonHash());
+        assertEquals(64, saved.getComparisonHash().length());
         assertEquals(analysisResult.summary(), saved.getSummary());
         assertEquals(1, saved.getTechnicalImpacts().size());
         assertEquals(1, saved.getActionItems().size());
@@ -487,7 +498,7 @@ class ImpactAnalysisServiceTest {
     }
 
     @Test
-    void deveReutilizarAnaliseDeSchemaExistenteParaMesmaPublicacao() {
+    void comparacaoIdenticaNaoDuplicaAnalise() {
 
         Long publicationId = 10L;
         PublicationEntity publication = criarPublicacao(publicationId);
@@ -496,12 +507,19 @@ class ImpactAnalysisServiceTest {
         ImpactAnalysisResponse response = criarResponse(1L, publicationId);
 
         existing.setAnalysisVersion("schema-comparison-v1");
+        existing.setPreviousExternalId(request.previousExternalId());
+        existing.setComparisonHash("a".repeat(64));
 
         when(publicationRepository.findByExternalId(
                 request.currentExternalId()
         )).thenReturn(Optional.of(publication));
-        when(impactAnalysisRepository.findByPublicationId(publicationId))
-                .thenReturn(List.of(existing));
+        when(impactAnalysisRepository
+                .findFirstByPublicationIdAndAnalysisVersionAndPreviousExternalIdAndComparisonHash(
+                        eq(publicationId),
+                        eq("schema-comparison-v1"),
+                        eq(request.previousExternalId()),
+                        anyString()
+                )).thenReturn(Optional.of(existing));
         when(impactAnalysisMapper.toResponse(existing)).thenReturn(response);
 
         ImpactAnalysisResponse result =
@@ -511,6 +529,121 @@ class ImpactAnalysisServiceTest {
                 .analyze(any(SchemaChangeAnalysisInput.class));
         verify(impactAnalysisRepository, never()).save(any());
         assertSame(response, result);
+    }
+
+    @Test
+    void comparacaoDiferenteGeraNovaAnalise() {
+
+        Long publicationId = 10L;
+        PublicationEntity publication = criarPublicacao(publicationId);
+        SchemaComparisonRequest primeira = criarSchemaComparisonRequest();
+        SchemaComparisonRequest segunda = criarSchemaComparisonRequestComChange(
+                "CARDINALITY_CHANGED",
+                "complexType:TCredPresIBSZFM/element:vCredPresIBSZFM",
+                "vCredPresIBSZFM",
+                "{minOccurs=0, maxOccurs=1}",
+                "{minOccurs=1, maxOccurs=1}"
+        );
+        ImpactAnalysisResult analysisResult = criarResultadoAnalise();
+        ImpactAnalysisResponse response = criarResponse(1L, publicationId);
+
+        when(publicationRepository.findByExternalId("external-1"))
+                .thenReturn(Optional.of(publication));
+        when(impactAnalysisRepository
+                .findFirstByPublicationIdAndAnalysisVersionAndPreviousExternalIdAndComparisonHash(
+                        eq(publicationId),
+                        eq("schema-comparison-v1"),
+                        eq("external-0"),
+                        anyString()
+                )).thenReturn(Optional.empty());
+        when(publicationDocumentRepository.findByPublicationId(publicationId))
+                .thenReturn(Optional.empty());
+        when(schemaChangeImpactAnalyzer.analyze(
+                any(SchemaChangeAnalysisInput.class)
+        )).thenReturn(analysisResult);
+        when(impactAnalysisRepository.save(any(ImpactAnalysis.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        when(impactAnalysisMapper.toResponse(any(ImpactAnalysis.class)))
+                .thenReturn(response);
+
+        impactAnalysisService.analyzeSchemaComparison(primeira);
+        impactAnalysisService.analyzeSchemaComparison(segunda);
+
+        ArgumentCaptor<ImpactAnalysis> analysisCaptor =
+                ArgumentCaptor.forClass(ImpactAnalysis.class);
+
+        verify(impactAnalysisRepository, times(2))
+                .save(analysisCaptor.capture());
+
+        List<ImpactAnalysis> saved = analysisCaptor.getAllValues();
+
+        assertEquals("external-0", saved.get(0).getPreviousExternalId());
+        assertEquals("external-0", saved.get(1).getPreviousExternalId());
+        assertNotNull(saved.get(0).getComparisonHash());
+        assertNotNull(saved.get(1).getComparisonHash());
+        assertEquals(64, saved.get(0).getComparisonHash().length());
+        assertEquals(64, saved.get(1).getComparisonHash().length());
+        assertNotNull(saved.get(0).getComparisonHash());
+        assertEquals(
+                false,
+                saved.get(0).getComparisonHash()
+                        .equals(saved.get(1).getComparisonHash())
+        );
+    }
+
+    @Test
+    void comparacaoComVersaoAnteriorDiferenteGeraNovaAnalise() {
+
+        Long publicationId = 10L;
+        PublicationEntity publication = criarPublicacao(publicationId);
+        SchemaComparisonRequest primeira = criarSchemaComparisonRequest();
+        SchemaComparisonRequest segunda = criarSchemaComparisonRequestComAnterior(
+                "external-anterior-2",
+                "2025.002 v1.10"
+        );
+        ImpactAnalysisResult analysisResult = criarResultadoAnalise();
+        ImpactAnalysisResponse response = criarResponse(1L, publicationId);
+
+        when(publicationRepository.findByExternalId("external-1"))
+                .thenReturn(Optional.of(publication));
+        when(impactAnalysisRepository
+                .findFirstByPublicationIdAndAnalysisVersionAndPreviousExternalIdAndComparisonHash(
+                        eq(publicationId),
+                        eq("schema-comparison-v1"),
+                        anyString(),
+                        anyString()
+                )).thenReturn(Optional.empty());
+        when(publicationDocumentRepository.findByPublicationId(publicationId))
+                .thenReturn(Optional.empty());
+        when(schemaChangeImpactAnalyzer.analyze(
+                any(SchemaChangeAnalysisInput.class)
+        )).thenReturn(analysisResult);
+        when(impactAnalysisRepository.save(any(ImpactAnalysis.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        when(impactAnalysisMapper.toResponse(any(ImpactAnalysis.class)))
+                .thenReturn(response);
+
+        impactAnalysisService.analyzeSchemaComparison(primeira);
+        impactAnalysisService.analyzeSchemaComparison(segunda);
+
+        ArgumentCaptor<ImpactAnalysis> analysisCaptor =
+                ArgumentCaptor.forClass(ImpactAnalysis.class);
+
+        verify(impactAnalysisRepository, times(2))
+                .save(analysisCaptor.capture());
+
+        List<ImpactAnalysis> saved = analysisCaptor.getAllValues();
+
+        assertEquals("external-0", saved.get(0).getPreviousExternalId());
+        assertEquals(
+                "external-anterior-2",
+                saved.get(1).getPreviousExternalId()
+        );
+        assertEquals(
+                false,
+                saved.get(0).getComparisonHash()
+                        .equals(saved.get(1).getComparisonHash())
+        );
     }
 
     @Test
@@ -574,6 +707,51 @@ class ImpactAnalysisServiceTest {
                 "external-0",
                 "2025.002 v1.30",
                 "2025.002 v1.20",
+                List.of(new SchemaChangeRequest(
+                        "DFeTiposBasicos_v1.00.xsd",
+                        "TYPE_CHANGED",
+                        "complexType:TCIBS/element:vBC",
+                        "vBC",
+                        "TDec1302",
+                        "TDec1302RTC"
+                ))
+        );
+    }
+
+    private SchemaComparisonRequest criarSchemaComparisonRequestComChange(
+            String changeType,
+            String schemaPath,
+            String symbolName,
+            Object before,
+            Object after
+    ) {
+
+        return new SchemaComparisonRequest(
+                "external-1",
+                "external-0",
+                "2025.002 v1.30",
+                "2025.002 v1.20",
+                List.of(new SchemaChangeRequest(
+                        "DFeTiposBasicos_v1.00.xsd",
+                        changeType,
+                        schemaPath,
+                        symbolName,
+                        before,
+                        after
+                ))
+        );
+    }
+
+    private SchemaComparisonRequest criarSchemaComparisonRequestComAnterior(
+            String previousExternalId,
+            String previousVersion
+    ) {
+
+        return new SchemaComparisonRequest(
+                "external-1",
+                previousExternalId,
+                "2025.002 v1.30",
+                previousVersion,
                 List.of(new SchemaChangeRequest(
                         "DFeTiposBasicos_v1.00.xsd",
                         "TYPE_CHANGED",

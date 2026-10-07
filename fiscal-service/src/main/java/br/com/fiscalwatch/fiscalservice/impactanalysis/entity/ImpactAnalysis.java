@@ -43,6 +43,12 @@ public class ImpactAnalysis {
     @Column(name = "analysis_version", nullable = false, length = 50)
     private String analysisVersion;
 
+    @Column(name = "previous_external_id", length = 64)
+    private String previousExternalId;
+
+    @Column(name = "comparison_hash", length = 64)
+    private String comparisonHash;
+
     @Column(name = "homologation_deadline")
     private LocalDateTime homologationDeadline;
 

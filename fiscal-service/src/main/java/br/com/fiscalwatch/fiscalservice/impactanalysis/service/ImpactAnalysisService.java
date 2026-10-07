@@ -13,6 +13,7 @@ import br.com.fiscalwatch.fiscalservice.impactanalysis.dto.ActionItemRequest;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.dto.EvidenceRequest;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.dto.ImpactAnalysisRequest;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.dto.ImpactAnalysisResponse;
+import br.com.fiscalwatch.fiscalservice.impactanalysis.dto.SchemaChangeRequest;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.dto.SchemaComparisonRequest;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.dto.TechnicalImpactRequest;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.entity.ActionItem;
@@ -33,8 +34,15 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.LocalDateTime;
+import java.util.Collection;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 @RequiredArgsConstructor
 @Service
@@ -149,22 +157,27 @@ public class ImpactAnalysisService {
                         )
                 );
 
+        String comparisonHash = comparisonHash(request);
+
         return impactAnalysisRepository
-                .findByPublicationId(publication.getId())
-                .stream()
-                .filter(impactAnalysis -> SCHEMA_COMPARISON_ANALYSIS_VERSION
-                        .equals(impactAnalysis.getAnalysisVersion()))
-                .findFirst()
+                .findFirstByPublicationIdAndAnalysisVersionAndPreviousExternalIdAndComparisonHash(
+                        publication.getId(),
+                        SCHEMA_COMPARISON_ANALYSIS_VERSION,
+                        request.previousExternalId(),
+                        comparisonHash
+                )
                 .map(impactAnalysisMapper::toResponse)
                 .orElseGet(() -> createSchemaComparisonAnalysis(
                         publication,
-                        request
+                        request,
+                        comparisonHash
                 ));
     }
 
     private ImpactAnalysisResponse createSchemaComparisonAnalysis(
             PublicationEntity publication,
-            SchemaComparisonRequest request
+            SchemaComparisonRequest request,
+            String comparisonHash
     ) {
 
         PublicationDocumentAnalysisInput document =
@@ -190,8 +203,119 @@ public class ImpactAnalysisService {
                 result,
                 SCHEMA_COMPARISON_ANALYSIS_VERSION
         );
+        impactAnalysis.setPreviousExternalId(request.previousExternalId());
+        impactAnalysis.setComparisonHash(comparisonHash);
 
         return saveAndMap(impactAnalysis);
+    }
+
+    private String comparisonHash(SchemaComparisonRequest request) {
+
+        String normalized = String.join(
+                "\n",
+                normalizedValue(request.currentExternalId()),
+                normalizedValue(request.previousExternalId()),
+                normalizedValue(request.currentVersion()),
+                normalizedValue(request.previousVersion()),
+                normalizedChanges(request.changes())
+        );
+
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(
+                    normalized.getBytes(StandardCharsets.UTF_8)
+            );
+
+            StringBuilder hex = new StringBuilder(hash.length * 2);
+
+            for (byte value : hash) {
+                hex.append(String.format("%02x", value));
+            }
+
+            return hex.toString();
+        } catch (NoSuchAlgorithmException exception) {
+            throw new IllegalStateException(
+                    "Algoritmo SHA-256 indisponivel",
+                    exception
+            );
+        }
+    }
+
+    private String normalizedChanges(List<SchemaChangeRequest> changes) {
+
+        if (changes == null) {
+            return "";
+        }
+
+        return changes.stream()
+                .sorted(Comparator
+                        .comparing(
+                                SchemaChangeRequest::artifact,
+                                Comparator.nullsFirst(String::compareTo)
+                        )
+                        .thenComparing(
+                                SchemaChangeRequest::changeType,
+                                Comparator.nullsFirst(String::compareTo)
+                        )
+                        .thenComparing(
+                                SchemaChangeRequest::schemaPath,
+                                Comparator.nullsFirst(String::compareTo)
+                        )
+                        .thenComparing(
+                                SchemaChangeRequest::symbolName,
+                                Comparator.nullsFirst(String::compareTo)
+                        )
+                        .thenComparing(change -> normalizedObject(
+                                change.before()
+                        ))
+                        .thenComparing(change -> normalizedObject(
+                                change.after()
+                        )))
+                .map(change -> String.join(
+                        "|",
+                        normalizedValue(change.artifact()),
+                        normalizedValue(change.changeType()),
+                        normalizedValue(change.schemaPath()),
+                        normalizedValue(change.symbolName()),
+                        normalizedObject(change.before()),
+                        normalizedObject(change.after())
+                ))
+                .collect(Collectors.joining("\n"));
+    }
+
+    private String normalizedObject(Object value) {
+
+        if (value == null) {
+            return "null";
+        }
+
+        if (value instanceof Map<?, ?> map) {
+            return map.entrySet()
+                    .stream()
+                    .sorted(Comparator.comparing(entry ->
+                            normalizedObject(entry.getKey())))
+                    .map(entry -> normalizedObject(entry.getKey())
+                            + ":"
+                            + normalizedObject(entry.getValue()))
+                    .collect(Collectors.joining(",", "{", "}"));
+        }
+
+        if (value instanceof Collection<?> collection) {
+            return collection.stream()
+                    .map(this::normalizedObject)
+                    .collect(Collectors.joining(",", "[", "]"));
+        }
+
+        return normalizedValue(String.valueOf(value));
+    }
+
+    private String normalizedValue(String value) {
+
+        if (value == null) {
+            return "";
+        }
+
+        return value.trim();
     }
 
     private ImpactAnalysis toImpactAnalysis(
