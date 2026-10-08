@@ -1,6 +1,6 @@
 import httpx
 
-from app.model.schema_comparison import SchemaChange
+from app.model.schema_comparison import SchemaChange, XsdTypeDefinition
 from app.model.svrs_schema_comparison_orchestration import (
     SvrsSchemaComparisonOrchestrationResult
 )
@@ -68,5 +68,28 @@ def _change_payload(change: SchemaChange) -> dict:
         "schemaPath": change.schema_path,
         "symbolName": change.symbol_name,
         "before": change.before,
-        "after": change.after
+        "after": change.after,
+        "beforeTypeDefinition": _type_definition_payload(
+            change.before_type_definition
+        ),
+        "afterTypeDefinition": _type_definition_payload(
+            change.after_type_definition
+        )
+    }
+
+
+def _type_definition_payload(
+    definition: XsdTypeDefinition | None
+) -> dict | None:
+    if definition is None:
+        return None
+
+    return {
+        "name": definition.name,
+        "artifact": definition.artifact,
+        "schemaPath": definition.schema_path,
+        "base": definition.base,
+        "patterns": definition.patterns,
+        "enumerations": definition.enumerations,
+        "facets": definition.facets
     }

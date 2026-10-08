@@ -50,7 +50,7 @@ public class ImpactAnalysisService {
 
     private static final String AUTOMATIC_ANALYSIS_VERSION = "automatic-v1";
     private static final String SCHEMA_COMPARISON_ANALYSIS_VERSION =
-            "schema-comparison-v1";
+            "schema-comparison-v2";
 
     private final ImpactAnalysisRepository impactAnalysisRepository;
     private final PublicationRepository publicationRepository;

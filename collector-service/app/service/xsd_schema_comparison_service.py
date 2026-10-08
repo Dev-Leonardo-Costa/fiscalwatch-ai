@@ -1,7 +1,11 @@
 from dataclasses import dataclass
 from xml.etree import ElementTree
 
-from app.model.schema_comparison import SchemaArtifact, SchemaChange
+from app.model.schema_comparison import (
+    SchemaArtifact,
+    SchemaChange,
+    XsdTypeDefinition
+)
 
 
 XSD_NAMESPACE = "http://www.w3.org/2001/XMLSchema"
@@ -14,6 +18,7 @@ XSD_PATTERN_TAG = f"{{{XSD_NAMESPACE}}}pattern"
 XSD_INCLUDE_TAG = f"{{{XSD_NAMESPACE}}}include"
 XSD_IMPORT_TAG = f"{{{XSD_NAMESPACE}}}import"
 SUPPORTED_FACET_TAGS = {
+    f"{{{XSD_NAMESPACE}}}whiteSpace": "whiteSpace",
     f"{{{XSD_NAMESPACE}}}length": "length",
     f"{{{XSD_NAMESPACE}}}minLength": "minLength",
     f"{{{XSD_NAMESPACE}}}maxLength": "maxLength",
@@ -53,6 +58,7 @@ class _ElementDescriptor:
 class _RestrictionDescriptor:
     schema_path: str
     symbol_name: str
+    base: str | None
     enumerations: list[str]
     patterns: list[str]
     facets: dict[str, str]
@@ -105,6 +111,18 @@ def compare_schema_artifacts(
 ) -> list[SchemaChange]:
     previous_by_path = _index_artifacts_by_path(previous_artifacts)
     current_by_path = _index_artifacts_by_path(current_artifacts)
+    previous_restrictions_by_path = _parse_restrictions_by_path(
+        previous_artifacts
+    )
+    current_restrictions_by_path = _parse_restrictions_by_path(
+        current_artifacts
+    )
+    previous_type_definitions = _index_xsd_type_definitions(
+        previous_restrictions_by_path
+    )
+    current_type_definitions = _index_xsd_type_definitions(
+        current_restrictions_by_path
+    )
     changes = []
 
     for path in sorted(current_by_path.keys() - previous_by_path.keys()):
@@ -131,13 +149,17 @@ def compare_schema_artifacts(
         changes.extend(
             _compare_artifact_elements(
                 previous_by_path[path],
-                current_by_path[path]
+                current_by_path[path],
+                previous_type_definitions,
+                current_type_definitions
             )
         )
         changes.extend(
             _compare_artifact_restrictions(
                 previous_by_path[path],
-                current_by_path[path]
+                current_by_path[path],
+                previous_restrictions_by_path.get(path, {}),
+                current_restrictions_by_path.get(path, {})
             )
         )
         changes.extend(
@@ -168,7 +190,9 @@ def _artifact_snapshot(artifact: SchemaArtifact) -> dict[str, str | None]:
 
 def _compare_artifact_elements(
     previous_artifact: SchemaArtifact,
-    current_artifact: SchemaArtifact
+    current_artifact: SchemaArtifact,
+    previous_type_definitions: dict[str, XsdTypeDefinition],
+    current_type_definitions: dict[str, XsdTypeDefinition]
 ) -> list[SchemaChange]:
     previous_elements = _parse_xsd_elements(previous_artifact.content)
     current_elements = _parse_xsd_elements(current_artifact.content)
@@ -218,7 +242,15 @@ def _compare_artifact_elements(
                     schema_path=schema_path,
                     symbol_name=current.symbol_name,
                     before=previous.type,
-                    after=current.type
+                    after=current.type,
+                    before_type_definition=_find_type_definition(
+                        previous.type,
+                        previous_type_definitions
+                    ),
+                    after_type_definition=_find_type_definition(
+                        current.type,
+                        current_type_definitions
+                    )
                 )
             )
 
@@ -239,14 +271,10 @@ def _compare_artifact_elements(
 
 def _compare_artifact_restrictions(
     previous_artifact: SchemaArtifact,
-    current_artifact: SchemaArtifact
+    current_artifact: SchemaArtifact,
+    previous_restrictions: dict[str, _RestrictionDescriptor],
+    current_restrictions: dict[str, _RestrictionDescriptor]
 ) -> list[SchemaChange]:
-    previous_restrictions = _parse_xsd_restrictions(
-        previous_artifact.content
-    )
-    current_restrictions = _parse_xsd_restrictions(
-        current_artifact.content
-    )
     changes = []
 
     for schema_path in sorted(
@@ -442,6 +470,53 @@ def _parse_xsd_imports(content: str) -> list[_ImportDescriptor]:
     return imports
 
 
+def _parse_restrictions_by_path(
+    artifacts: list[SchemaArtifact]
+) -> dict[str, dict[str, _RestrictionDescriptor]]:
+    return {
+        artifact.path: _parse_xsd_restrictions(artifact.content)
+        for artifact in artifacts
+    }
+
+
+def _index_xsd_type_definitions(
+    restrictions_by_path: dict[str, dict[str, _RestrictionDescriptor]]
+) -> dict[str, XsdTypeDefinition]:
+    definitions = {}
+
+    for artifact_path in sorted(restrictions_by_path):
+        for restriction in restrictions_by_path[artifact_path].values():
+            if not restriction.schema_path.startswith("simpleType:"):
+                continue
+
+            definitions.setdefault(
+                restriction.symbol_name,
+                XsdTypeDefinition(
+                    name=restriction.symbol_name,
+                    artifact=artifact_path,
+                    schema_path=restriction.schema_path,
+                    base=restriction.base,
+                    patterns=restriction.patterns,
+                    enumerations=restriction.enumerations,
+                    facets=restriction.facets
+                )
+            )
+
+    return definitions
+
+
+def _find_type_definition(
+    type_name: str | None,
+    definitions: dict[str, XsdTypeDefinition]
+) -> XsdTypeDefinition | None:
+    if not type_name:
+        return None
+
+    return definitions.get(type_name) or definitions.get(
+        type_name.split(":", 1)[-1]
+    )
+
+
 def _collect_xsd_elements(
     node: ElementTree.Element,
     current_path: list[str],
@@ -492,6 +567,7 @@ def _collect_xsd_restrictions(
         restrictions[schema_path] = _RestrictionDescriptor(
             schema_path=schema_path,
             symbol_name=symbol_name,
+            base=base,
             enumerations=_collect_direct_values(node, XSD_ENUMERATION_TAG),
             patterns=_collect_direct_values(node, XSD_PATTERN_TAG),
             facets=_collect_direct_facets(node)

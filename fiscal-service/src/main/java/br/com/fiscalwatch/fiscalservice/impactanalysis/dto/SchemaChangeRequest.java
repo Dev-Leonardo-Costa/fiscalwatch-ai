@@ -16,6 +16,10 @@ public record SchemaChangeRequest(
 
         Object before,
 
-        Object after
+        Object after,
+
+        XsdTypeDefinitionRequest beforeTypeDefinition,
+
+        XsdTypeDefinitionRequest afterTypeDefinition
 ) {
 }

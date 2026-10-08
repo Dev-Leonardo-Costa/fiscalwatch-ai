@@ -1,4 +1,5 @@
 from datetime import datetime
+from types import SimpleNamespace
 
 from app.model.publication import Publication
 from app.model.publication_document import PublicationDocument
@@ -28,6 +29,7 @@ def test_deve_publicar_evento_para_cada_publicacao_svrs(monkeypatch):
     )
 
     eventos_publicados = []
+    comparacoes = []
 
     monkeypatch.setattr(
         publication_dispatch_service,
@@ -39,6 +41,22 @@ def test_deve_publicar_evento_para_cada_publicacao_svrs(monkeypatch):
         publication_dispatch_service,
         "publish_publication_event",
         eventos_publicados.append
+    )
+    monkeypatch.setattr(
+        publication_dispatch_service,
+        "compare_current_svrs_schema_publication",
+        lambda publication, document: comparacoes.append((
+            publication,
+            document
+        )) or SimpleNamespace(
+            status="SKIPPED",
+            reason="PREVIOUS_VERSION_NOT_FOUND"
+        )
+    )
+    monkeypatch.setattr(
+        publication_dispatch_service,
+        "send_schema_comparison_impact_analysis",
+        lambda comparison: None
     )
     monkeypatch.setattr(
         publication_dispatch_service,
@@ -68,6 +86,12 @@ def test_deve_publicar_evento_para_cada_publicacao_svrs(monkeypatch):
     assert eventos_publicados[1].event_type == PUBLICATION_DISCOVERED
     assert eventos_publicados[1].publication == segunda_publicacao
     assert eventos_publicados[1].document.extraction_status == "EXTRACTED"
+    assert comparacoes == [
+        (
+            segunda_publicacao,
+            eventos_publicados[1].document
+        )
+    ]
 
 
 def test_deve_retornar_zero_quando_nao_houver_publicacoes(monkeypatch):
@@ -353,6 +377,258 @@ def test_dispatch_unitario_external_id_inexistente_nao_publica(monkeypatch):
         "external_id": "h" * 64
     }
     assert eventos_publicados == []
+
+
+def test_schema_svrs_extraido_dispara_comparacao_apos_publicar_evento(
+    monkeypatch
+):
+    publicacao = criar_publicacao_schema_svrs()
+    chamadas = []
+    documento = criar_documento_extraido(publicacao)
+
+    monkeypatch.setattr(
+        publication_dispatch_service,
+        "extract_publication_document",
+        lambda publication: documento
+    )
+
+    def publicar_evento(evento):
+        chamadas.append(("publicar", evento.publication.external_id))
+
+    def comparar(publication, document):
+        chamadas.append(("comparar", publication.external_id))
+        assert document == documento
+        return SimpleNamespace(status="SKIPPED", reason="sem anterior")
+
+    monkeypatch.setattr(
+        publication_dispatch_service,
+        "publish_publication_event",
+        publicar_evento
+    )
+    monkeypatch.setattr(
+        publication_dispatch_service,
+        "compare_current_svrs_schema_publication",
+        comparar
+    )
+    monkeypatch.setattr(
+        publication_dispatch_service,
+        "send_schema_comparison_impact_analysis",
+        lambda comparison: chamadas.append(("enviar", comparison.status))
+    )
+
+    resultado = publication_dispatch_service.dispatch_publication(publicacao)
+
+    assert resultado["status"] == "PUBLISHED"
+    assert chamadas == [
+        ("publicar", publicacao.external_id),
+        ("comparar", publicacao.external_id)
+    ]
+
+
+def test_comparacao_compared_envia_analise_de_impacto(monkeypatch):
+    publicacao = criar_publicacao_schema_svrs()
+    documento = criar_documento_extraido(publicacao)
+    comparacao = SimpleNamespace(status="COMPARED", reason=None)
+    envios = []
+
+    monkeypatch.setattr(
+        publication_dispatch_service,
+        "extract_publication_document",
+        lambda publication: documento
+    )
+    monkeypatch.setattr(
+        publication_dispatch_service,
+        "publish_publication_event",
+        lambda event: None
+    )
+    monkeypatch.setattr(
+        publication_dispatch_service,
+        "compare_current_svrs_schema_publication",
+        lambda publication, document: comparacao
+    )
+    monkeypatch.setattr(
+        publication_dispatch_service,
+        "send_schema_comparison_impact_analysis",
+        envios.append
+    )
+
+    resultado = publication_dispatch_service.dispatch_publication(publicacao)
+
+    assert resultado["status"] == "PUBLISHED"
+    assert envios == [comparacao]
+
+
+def test_comparacao_skipped_nao_envia_analise_de_impacto(monkeypatch):
+    publicacao = criar_publicacao_schema_svrs()
+    documento = criar_documento_extraido(publicacao)
+    envios = []
+
+    monkeypatch.setattr(
+        publication_dispatch_service,
+        "extract_publication_document",
+        lambda publication: documento
+    )
+    monkeypatch.setattr(
+        publication_dispatch_service,
+        "publish_publication_event",
+        lambda event: None
+    )
+    monkeypatch.setattr(
+        publication_dispatch_service,
+        "compare_current_svrs_schema_publication",
+        lambda publication, document: SimpleNamespace(
+            status="SKIPPED",
+            reason="PREVIOUS_VERSION_NOT_FOUND"
+        )
+    )
+    monkeypatch.setattr(
+        publication_dispatch_service,
+        "send_schema_comparison_impact_analysis",
+        envios.append
+    )
+
+    resultado = publication_dispatch_service.dispatch_publication(publicacao)
+
+    assert resultado["status"] == "PUBLISHED"
+    assert envios == []
+
+
+def test_publicacao_svrs_que_nao_seja_schema_nao_compara(monkeypatch):
+    publicacao = criar_publicacao(
+        external_id="s" * 64,
+        title="Nota Técnica 2026.009 v1.00",
+        download_url="https://example.com/nota.pdf"
+    )
+    comparacoes = []
+
+    monkeypatch.setattr(
+        publication_dispatch_service,
+        "extract_publication_document",
+        lambda publication: criar_documento_extraido(publication)
+    )
+    monkeypatch.setattr(
+        publication_dispatch_service,
+        "publish_publication_event",
+        lambda event: None
+    )
+    monkeypatch.setattr(
+        publication_dispatch_service,
+        "compare_current_svrs_schema_publication",
+        lambda publication, document: comparacoes.append(publication)
+    )
+
+    resultado = publication_dispatch_service.dispatch_publication(publicacao)
+
+    assert resultado["status"] == "PUBLISHED"
+    assert comparacoes == []
+
+
+def test_schema_sem_extraction_status_extracted_nao_compara(monkeypatch):
+    publicacao = criar_publicacao_schema_svrs()
+    comparacoes = []
+
+    monkeypatch.setattr(
+        publication_dispatch_service,
+        "extract_publication_document",
+        lambda publication: PublicationDocument(
+            source_url=publication.download_url,
+            extraction_status="FAILED",
+            extraction_error="falha controlada",
+            extractor_version="svrs-schema-zip-v1",
+            extracted_at=datetime.now()
+        )
+    )
+    monkeypatch.setattr(
+        publication_dispatch_service,
+        "publish_publication_event",
+        lambda event: None
+    )
+    monkeypatch.setattr(
+        publication_dispatch_service,
+        "compare_current_svrs_schema_publication",
+        lambda publication, document: comparacoes.append(publication)
+    )
+
+    resultado = publication_dispatch_service.dispatch_publication(publicacao)
+
+    assert resultado["status"] == "PUBLISHED"
+    assert resultado["document"]["extraction_status"] == "FAILED"
+    assert comparacoes == []
+
+
+def test_falha_ao_enviar_impacto_nao_quebra_dispatch(monkeypatch, caplog):
+    publicacao = criar_publicacao_schema_svrs()
+    documento = criar_documento_extraido(publicacao)
+
+    monkeypatch.setattr(
+        publication_dispatch_service,
+        "extract_publication_document",
+        lambda publication: documento
+    )
+    monkeypatch.setattr(
+        publication_dispatch_service,
+        "publish_publication_event",
+        lambda event: None
+    )
+    monkeypatch.setattr(
+        publication_dispatch_service,
+        "compare_current_svrs_schema_publication",
+        lambda publication, document: SimpleNamespace(
+            status="COMPARED",
+            reason=None
+        )
+    )
+
+    def falhar_envio(comparison):
+        raise RuntimeError("fiscal-service indisponivel")
+
+    monkeypatch.setattr(
+        publication_dispatch_service,
+        "send_schema_comparison_impact_analysis",
+        falhar_envio
+    )
+
+    resultado = publication_dispatch_service.dispatch_publication(publicacao)
+
+    assert resultado["status"] == "PUBLISHED"
+    assert publicacao.external_id in caplog.text
+    assert "Falha no fluxo adicional" in caplog.text
+
+
+def test_falha_durante_comparacao_nao_quebra_dispatch(monkeypatch, caplog):
+    publicacao = criar_publicacao_schema_svrs()
+    documento = criar_documento_extraido(publicacao)
+
+    monkeypatch.setattr(
+        publication_dispatch_service,
+        "extract_publication_document",
+        lambda publication: documento
+    )
+    monkeypatch.setattr(
+        publication_dispatch_service,
+        "publish_publication_event",
+        lambda event: None
+    )
+
+    def falhar_comparacao(publication, document):
+        raise RuntimeError("historico indisponivel")
+
+    monkeypatch.setattr(
+        publication_dispatch_service,
+        "compare_current_svrs_schema_publication",
+        falhar_comparacao
+    )
+    monkeypatch.setattr(
+        publication_dispatch_service,
+        "send_schema_comparison_impact_analysis",
+        lambda comparison: None
+    )
+
+    resultado = publication_dispatch_service.dispatch_publication(publicacao)
+
+    assert resultado["status"] == "PUBLISHED"
+    assert publicacao.external_id in caplog.text
+    assert "Falha no fluxo adicional" in caplog.text
 
 
 def test_deve_publicar_evento_para_cada_publicacao_receita(monkeypatch):
@@ -1123,6 +1399,29 @@ def criar_publicacao(
         document_type="NOTA_TECNICA",
         published_at=datetime.now(),
         download_url=download_url
+    )
+
+
+def criar_publicacao_schema_svrs() -> Publication:
+    return Publication(
+        external_id="3" * 64,
+        source="SVRS",
+        title="Schema XML da NT 2025.002 v1.30",
+        document_type="SCHEMA",
+        published_at=datetime.now(),
+        download_url="https://example.com/schema.zip"
+    )
+
+
+def criar_documento_extraido(publication: Publication) -> PublicationDocument:
+    return PublicationDocument(
+        source_url=publication.download_url,
+        content_text="=== arquivo: schema.xsd ===\n<xs:schema/>",
+        content_length=len("=== arquivo: schema.xsd ===\n<xs:schema/>"),
+        content_hash="hash-schema",
+        extraction_status="EXTRACTED",
+        extractor_version="svrs-schema-zip-v1",
+        extracted_at=datetime.now()
     )
 
 

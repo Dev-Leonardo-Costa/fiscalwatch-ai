@@ -155,6 +155,189 @@ def test_deve_detectar_type_alterado():
     assert changes[0].after == "TDec_1304"
 
 
+def test_type_changed_deve_receber_definicoes_dos_tipos_xsd():
+    previous_layout = SchemaArtifact(
+        path="DFeTiposBasicos_v1.00.xsd",
+        content=criar_schema(
+            """
+            <xs:complexType name="TCIBS">
+                <xs:sequence>
+                    <xs:element name="vBC" type="TDec1302"/>
+                </xs:sequence>
+            </xs:complexType>
+            """
+        )
+    )
+    previous_types = SchemaArtifact(
+        path="tipos-decimais.xsd",
+        content=criar_schema(
+            """
+            <xs:simpleType name="TDec1302">
+                <xs:restriction base="xs:string">
+                    <xs:whiteSpace value="preserve"/>
+                    <xs:pattern value="0|0\\.[0-9]{2}"/>
+                    <xs:totalDigits value="13"/>
+                    <xs:fractionDigits value="2"/>
+                </xs:restriction>
+            </xs:simpleType>
+            """
+        )
+    )
+    current_layout = SchemaArtifact(
+        path="DFeTiposBasicos_v1.00.xsd",
+        content=criar_schema(
+            """
+            <xs:complexType name="TCIBS">
+                <xs:sequence>
+                    <xs:element name="vBC" type="TDec1302RTC"/>
+                </xs:sequence>
+            </xs:complexType>
+            """
+        )
+    )
+    current_types = SchemaArtifact(
+        path="tipos-decimais.xsd",
+        content=criar_schema(
+            """
+            <xs:simpleType name="TDec1302RTC">
+                <xs:restriction base="xs:string">
+                    <xs:whiteSpace value="preserve"/>
+                    <xs:pattern value="0|0\\.[0-9]{2}"/>
+                    <xs:totalDigits value="13"/>
+                    <xs:fractionDigits value="2"/>
+                </xs:restriction>
+            </xs:simpleType>
+            """
+        )
+    )
+
+    changes = compare_schema_artifacts(
+        [previous_layout, previous_types],
+        [current_layout, current_types]
+    )
+
+    type_change = next(
+        change
+        for change in changes
+        if change.change_type == "TYPE_CHANGED"
+    )
+
+    assert type_change.artifact == "DFeTiposBasicos_v1.00.xsd"
+    assert type_change.schema_path == "complexType:TCIBS/element:vBC"
+    assert type_change.symbol_name == "vBC"
+    assert type_change.before == "TDec1302"
+    assert type_change.after == "TDec1302RTC"
+
+    assert type_change.before_type_definition is not None
+    assert type_change.before_type_definition.name == "TDec1302"
+    assert type_change.before_type_definition.artifact == "tipos-decimais.xsd"
+    assert type_change.before_type_definition.schema_path == (
+        "simpleType:TDec1302/restriction:xs:string"
+    )
+    assert type_change.before_type_definition.base == "xs:string"
+    assert type_change.before_type_definition.patterns == [
+        "0|0\\.[0-9]{2}"
+    ]
+    assert type_change.before_type_definition.facets == {
+        "whiteSpace": "preserve",
+        "totalDigits": "13",
+        "fractionDigits": "2"
+    }
+
+    assert type_change.after_type_definition is not None
+    assert type_change.after_type_definition.name == "TDec1302RTC"
+    assert type_change.after_type_definition.artifact == "tipos-decimais.xsd"
+    assert type_change.after_type_definition.schema_path == (
+        "simpleType:TDec1302RTC/restriction:xs:string"
+    )
+    assert type_change.after_type_definition.base == "xs:string"
+    assert type_change.after_type_definition.patterns == [
+        "0|0\\.[0-9]{2}"
+    ]
+    assert type_change.after_type_definition.facets == {
+        "whiteSpace": "preserve",
+        "totalDigits": "13",
+        "fractionDigits": "2"
+    }
+
+
+def test_type_changed_com_tipo_inexistente_nao_deve_quebrar_comparacao():
+    previous = SchemaArtifact(
+        path="schemas/nfe.xsd",
+        content=criar_schema(
+            """
+            <xs:complexType name="TNFe">
+                <xs:sequence>
+                    <xs:element name="valor" type="TipoAnteriorAusente"/>
+                </xs:sequence>
+            </xs:complexType>
+            """
+        )
+    )
+    current = SchemaArtifact(
+        path="schemas/nfe.xsd",
+        content=criar_schema(
+            """
+            <xs:complexType name="TNFe">
+                <xs:sequence>
+                    <xs:element name="valor" type="TipoAtualAusente"/>
+                </xs:sequence>
+            </xs:complexType>
+            """
+        )
+    )
+
+    changes = compare_schema_artifacts([previous], [current])
+
+    assert [change.change_type for change in changes] == ["TYPE_CHANGED"]
+    assert changes[0].before == "TipoAnteriorAusente"
+    assert changes[0].after == "TipoAtualAusente"
+    assert changes[0].before_type_definition is None
+    assert changes[0].after_type_definition is None
+
+
+def test_outros_change_types_continuam_sem_definicao_de_tipo():
+    previous = SchemaArtifact(
+        path="schemas/nfe.xsd",
+        content=criar_schema(
+            """
+            <xs:simpleType name="TData">
+                <xs:restriction base="xs:string">
+                    <xs:pattern value="[0-9]{4}-[0-9]{2}-[0-9]{2}"/>
+                </xs:restriction>
+            </xs:simpleType>
+            <xs:complexType name="TNFe">
+                <xs:sequence/>
+            </xs:complexType>
+            """
+        )
+    )
+    current = SchemaArtifact(
+        path="schemas/nfe.xsd",
+        content=criar_schema(
+            """
+            <xs:simpleType name="TData">
+                <xs:restriction base="xs:string">
+                    <xs:pattern value="[0-9]{4}-[0-9]{2}-[0-9]{2}"/>
+                </xs:restriction>
+            </xs:simpleType>
+            <xs:complexType name="TNFe">
+                <xs:sequence>
+                    <xs:element name="dPrevEntrega" type="TData"/>
+                </xs:sequence>
+            </xs:complexType>
+            """
+        )
+    )
+
+    changes = compare_schema_artifacts([previous], [current])
+
+    assert [change.change_type for change in changes] == ["ELEMENT_ADDED"]
+    assert changes[0].symbol_name == "dPrevEntrega"
+    assert changes[0].before_type_definition is None
+    assert changes[0].after_type_definition is None
+
+
 def test_deve_detectar_min_occurs_zero_para_default_um():
     previous = SchemaArtifact(
         path="schemas/nfe.xsd",

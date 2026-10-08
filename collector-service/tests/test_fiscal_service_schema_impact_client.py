@@ -1,7 +1,7 @@
 import httpx
 import pytest
 
-from app.model.schema_comparison import SchemaChange
+from app.model.schema_comparison import SchemaChange, XsdTypeDefinition
 from app.model.svrs_schema_comparison_orchestration import (
     SvrsSchemaComparisonOrchestrationResult
 )
@@ -56,7 +56,39 @@ def test_deve_enviar_payload_da_comparacao_de_schema(monkeypatch):
                         "schemaPath": "complexType:TCIBS/element:vBC",
                         "symbolName": "vBC",
                         "before": "TDec1302",
-                        "after": "TDec1302RTC"
+                        "after": "TDec1302RTC",
+                        "beforeTypeDefinition": {
+                            "name": "TDec1302",
+                            "artifact": "tipos-decimais.xsd",
+                            "schemaPath": (
+                                "simpleType:TDec1302"
+                                "/restriction:xs:string"
+                            ),
+                            "base": "xs:string",
+                            "patterns": ["0|0\\.[0-9]{2}"],
+                            "enumerations": [],
+                            "facets": {
+                                "whiteSpace": "preserve",
+                                "totalDigits": "13",
+                                "fractionDigits": "2"
+                            }
+                        },
+                        "afterTypeDefinition": {
+                            "name": "TDec1302RTC",
+                            "artifact": "tipos-decimais.xsd",
+                            "schemaPath": (
+                                "simpleType:TDec1302RTC"
+                                "/restriction:xs:string"
+                            ),
+                            "base": "xs:string",
+                            "patterns": ["0|0\\.[0-9]{2}"],
+                            "enumerations": [],
+                            "facets": {
+                                "whiteSpace": "preserve",
+                                "totalDigits": "13",
+                                "fractionDigits": "2"
+                            }
+                        }
                     },
                     {
                         "artifact": "leiauteNFe_v4.00.xsd",
@@ -70,7 +102,9 @@ def test_deve_enviar_payload_da_comparacao_de_schema(monkeypatch):
                         "after": {
                             "name": "dPrevEntrega",
                             "type": "TData"
-                        }
+                        },
+                        "beforeTypeDefinition": None,
+                        "afterTypeDefinition": None
                     }
                 ]
             },
@@ -99,6 +133,35 @@ def test_deve_usar_url_base_informada_explicitamente(monkeypatch):
 
     assert chamadas == [
         "http://localhost:8080/api/impact-analyses/schema-comparisons"
+    ]
+
+
+def test_deve_enviar_null_quando_definicoes_xsd_estiverem_ausentes(monkeypatch):
+    chamadas = []
+
+    monkeypatch.setattr(
+        "app.service.fiscal_service_schema_impact_client.httpx.post",
+        lambda url, json, timeout: chamadas.append(json) or RespostaHttp(
+            {"id": 1}
+        )
+    )
+
+    send_schema_comparison_impact_analysis(
+        criar_comparacao_com_type_changed_sem_definicoes(),
+        base_url="http://localhost:8080"
+    )
+
+    assert chamadas[0]["changes"] == [
+        {
+            "artifact": "DFeTiposBasicos_v1.00.xsd",
+            "changeType": "TYPE_CHANGED",
+            "schemaPath": "complexType:TCIBS/element:vBC",
+            "symbolName": "vBC",
+            "before": "TipoAnteriorAusente",
+            "after": "TipoAtualAusente",
+            "beforeTypeDefinition": None,
+            "afterTypeDefinition": None
+        }
     ]
 
 
@@ -176,7 +239,37 @@ def criar_comparacao(status="COMPARED"):
                 schema_path="complexType:TCIBS/element:vBC",
                 symbol_name="vBC",
                 before="TDec1302",
-                after="TDec1302RTC"
+                after="TDec1302RTC",
+                before_type_definition=XsdTypeDefinition(
+                    name="TDec1302",
+                    artifact="tipos-decimais.xsd",
+                    schema_path=(
+                        "simpleType:TDec1302/restriction:xs:string"
+                    ),
+                    base="xs:string",
+                    patterns=["0|0\\.[0-9]{2}"],
+                    enumerations=[],
+                    facets={
+                        "whiteSpace": "preserve",
+                        "totalDigits": "13",
+                        "fractionDigits": "2"
+                    }
+                ),
+                after_type_definition=XsdTypeDefinition(
+                    name="TDec1302RTC",
+                    artifact="tipos-decimais.xsd",
+                    schema_path=(
+                        "simpleType:TDec1302RTC/restriction:xs:string"
+                    ),
+                    base="xs:string",
+                    patterns=["0|0\\.[0-9]{2}"],
+                    enumerations=[],
+                    facets={
+                        "whiteSpace": "preserve",
+                        "totalDigits": "13",
+                        "fractionDigits": "2"
+                    }
+                )
             ),
             SchemaChange(
                 artifact="leiauteNFe_v4.00.xsd",
@@ -194,4 +287,35 @@ def criar_comparacao(status="COMPARED"):
             )
         ],
         total_changes=2
+    )
+
+
+def criar_comparacao_com_type_changed_sem_definicoes():
+    return SvrsSchemaComparisonOrchestrationResult(
+        status="COMPARED",
+        current_identity=SvrsSchemaPackageIdentity(
+            nt="2025.002",
+            raw_version="v1.30",
+            status="RESOLVED"
+        ),
+        previous_identity=SvrsSchemaPackageIdentity(
+            nt="2025.002",
+            raw_version="v1.20",
+            status="RESOLVED"
+        ),
+        current_external_id="current-id",
+        previous_external_id="previous-id",
+        changes=[
+            SchemaChange(
+                artifact="DFeTiposBasicos_v1.00.xsd",
+                change_type="TYPE_CHANGED",
+                schema_path="complexType:TCIBS/element:vBC",
+                symbol_name="vBC",
+                before="TipoAnteriorAusente",
+                after="TipoAtualAusente",
+                before_type_definition=None,
+                after_type_definition=None
+            )
+        ],
+        total_changes=1
     )

@@ -1,4 +1,5 @@
 from datetime import datetime
+import logging
 
 from app.collectors.cgibs_collector import get_cgibs_technical_publications
 from app.collectors.imprensa_nacional_collector import (
@@ -11,11 +12,21 @@ from app.messaging.publication_event_publisher import publish_publication_event
 from app.model.publication_document import PublicationDocument
 from app.service.document_extraction_service import extract_publication_document
 from app.service.document_extraction_service import get_extractor_version_for_source
+from app.service.fiscal_service_schema_impact_client import (
+    send_schema_comparison_impact_analysis
+)
 from app.model.publication_event import (
     PUBLICATION_DISCOVERED,
     PublicationEvent
 )
 from app.service.publication_service import filter_relevant_publications
+from app.service.svrs_schema_comparison_orchestration_service import (
+    COMPARED,
+    compare_current_svrs_schema_publication
+)
+
+
+logger = logging.getLogger(__name__)
 
 
 def dispatch_publication(publication) -> dict:
@@ -40,8 +51,49 @@ def dispatch_publication(publication) -> dict:
     )
 
     publish_publication_event(event)
+    _try_dispatch_svrs_schema_impact_analysis(publication, document)
 
     return _dispatch_result(publication, document)
+
+
+def _try_dispatch_svrs_schema_impact_analysis(
+    publication,
+    document: PublicationDocument
+) -> None:
+    if not _should_analyze_svrs_schema(publication, document):
+        return
+
+    try:
+        comparison = compare_current_svrs_schema_publication(
+            publication,
+            document
+        )
+
+        if comparison.status != COMPARED:
+            logger.info(
+                "Comparação de schema SVRS ignorada. external_id=%s "
+                "status=%s reason=%s",
+                publication.external_id,
+                comparison.status,
+                comparison.reason
+            )
+            return
+
+        send_schema_comparison_impact_analysis(comparison)
+    except Exception:
+        logger.exception(
+            "Falha no fluxo adicional de impacto de schema SVRS. "
+            "external_id=%s",
+            publication.external_id
+        )
+
+
+def _should_analyze_svrs_schema(publication, document: PublicationDocument):
+    return (
+        publication.source == "SVRS"
+        and publication.document_type == "SCHEMA"
+        and document.extraction_status == "EXTRACTED"
+    )
 
 
 def dispatch_svrs_publications() -> dict:

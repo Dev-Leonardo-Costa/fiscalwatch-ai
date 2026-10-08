@@ -447,7 +447,7 @@ class ImpactAnalysisServiceTest {
         when(impactAnalysisRepository
                 .findFirstByPublicationIdAndAnalysisVersionAndPreviousExternalIdAndComparisonHash(
                         eq(publicationId),
-                        eq("schema-comparison-v1"),
+                        eq("schema-comparison-v2"),
                         eq(request.previousExternalId()),
                         anyString()
                 )).thenReturn(Optional.empty());
@@ -486,7 +486,7 @@ class ImpactAnalysisServiceTest {
         ImpactAnalysis saved = analysisCaptor.getValue();
 
         assertSame(publication, saved.getPublication());
-        assertEquals("schema-comparison-v1", saved.getAnalysisVersion());
+        assertEquals("schema-comparison-v2", saved.getAnalysisVersion());
         assertEquals(request.previousExternalId(), saved.getPreviousExternalId());
         assertNotNull(saved.getComparisonHash());
         assertEquals(64, saved.getComparisonHash().length());
@@ -498,7 +498,7 @@ class ImpactAnalysisServiceTest {
     }
 
     @Test
-    void comparacaoIdenticaNaoDuplicaAnalise() {
+    void analiseSchemaComparisonV2RepetidaPermaneceIdempotente() {
 
         Long publicationId = 10L;
         PublicationEntity publication = criarPublicacao(publicationId);
@@ -506,7 +506,7 @@ class ImpactAnalysisServiceTest {
         ImpactAnalysis existing = new ImpactAnalysis();
         ImpactAnalysisResponse response = criarResponse(1L, publicationId);
 
-        existing.setAnalysisVersion("schema-comparison-v1");
+        existing.setAnalysisVersion("schema-comparison-v2");
         existing.setPreviousExternalId(request.previousExternalId());
         existing.setComparisonHash("a".repeat(64));
 
@@ -516,7 +516,7 @@ class ImpactAnalysisServiceTest {
         when(impactAnalysisRepository
                 .findFirstByPublicationIdAndAnalysisVersionAndPreviousExternalIdAndComparisonHash(
                         eq(publicationId),
-                        eq("schema-comparison-v1"),
+                        eq("schema-comparison-v2"),
                         eq(request.previousExternalId()),
                         anyString()
                 )).thenReturn(Optional.of(existing));
@@ -528,6 +528,72 @@ class ImpactAnalysisServiceTest {
         verify(schemaChangeImpactAnalyzer, never())
                 .analyze(any(SchemaChangeAnalysisInput.class));
         verify(impactAnalysisRepository, never()).save(any());
+        assertSame(response, result);
+    }
+
+    @Test
+    void analiseSchemaComparisonV1ExistenteNaoBloqueiaCriacaoDaV2() {
+
+        Long publicationId = 10L;
+        PublicationEntity publication = criarPublicacao(publicationId);
+        SchemaComparisonRequest request = criarSchemaComparisonRequest();
+        ImpactAnalysis existingV1 = new ImpactAnalysis();
+        ImpactAnalysisResult analysisResult = criarResultadoAnalise();
+        ImpactAnalysisResponse response = criarResponse(1L, publicationId);
+
+        existingV1.setAnalysisVersion("schema-comparison-v1");
+        existingV1.setPreviousExternalId(request.previousExternalId());
+        existingV1.setComparisonHash("a".repeat(64));
+
+        when(publicationRepository.findByExternalId(
+                request.currentExternalId()
+        )).thenReturn(Optional.of(publication));
+        when(impactAnalysisRepository
+                .findFirstByPublicationIdAndAnalysisVersionAndPreviousExternalIdAndComparisonHash(
+                        eq(publicationId),
+                        eq("schema-comparison-v2"),
+                        eq(request.previousExternalId()),
+                        anyString()
+                )).thenReturn(Optional.empty());
+        when(publicationDocumentRepository.findByPublicationId(publicationId))
+                .thenReturn(Optional.empty());
+        when(schemaChangeImpactAnalyzer.analyze(
+                any(SchemaChangeAnalysisInput.class)
+        )).thenReturn(analysisResult);
+        when(impactAnalysisRepository.save(any(ImpactAnalysis.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        when(impactAnalysisMapper.toResponse(any(ImpactAnalysis.class)))
+                .thenReturn(response);
+
+        ImpactAnalysisResponse result =
+                impactAnalysisService.analyzeSchemaComparison(request);
+
+        ArgumentCaptor<ImpactAnalysis> analysisCaptor =
+                ArgumentCaptor.forClass(ImpactAnalysis.class);
+
+        verify(impactAnalysisRepository)
+                .findFirstByPublicationIdAndAnalysisVersionAndPreviousExternalIdAndComparisonHash(
+                        eq(publicationId),
+                        eq("schema-comparison-v2"),
+                        eq(request.previousExternalId()),
+                        anyString()
+                );
+        verify(impactAnalysisRepository, never())
+                .findFirstByPublicationIdAndAnalysisVersionAndPreviousExternalIdAndComparisonHash(
+                        eq(publicationId),
+                        eq("schema-comparison-v1"),
+                        eq(request.previousExternalId()),
+                        anyString()
+                );
+        verify(schemaChangeImpactAnalyzer)
+                .analyze(any(SchemaChangeAnalysisInput.class));
+        verify(impactAnalysisRepository).save(analysisCaptor.capture());
+
+        ImpactAnalysis saved = analysisCaptor.getValue();
+
+        assertEquals("schema-comparison-v2", saved.getAnalysisVersion());
+        assertEquals(request.previousExternalId(), saved.getPreviousExternalId());
+        assertNotNull(saved.getComparisonHash());
         assertSame(response, result);
     }
 
@@ -552,7 +618,7 @@ class ImpactAnalysisServiceTest {
         when(impactAnalysisRepository
                 .findFirstByPublicationIdAndAnalysisVersionAndPreviousExternalIdAndComparisonHash(
                         eq(publicationId),
-                        eq("schema-comparison-v1"),
+                        eq("schema-comparison-v2"),
                         eq("external-0"),
                         anyString()
                 )).thenReturn(Optional.empty());
@@ -609,7 +675,7 @@ class ImpactAnalysisServiceTest {
         when(impactAnalysisRepository
                 .findFirstByPublicationIdAndAnalysisVersionAndPreviousExternalIdAndComparisonHash(
                         eq(publicationId),
-                        eq("schema-comparison-v1"),
+                        eq("schema-comparison-v2"),
                         anyString(),
                         anyString()
                 )).thenReturn(Optional.empty());
@@ -713,7 +779,9 @@ class ImpactAnalysisServiceTest {
                         "complexType:TCIBS/element:vBC",
                         "vBC",
                         "TDec1302",
-                        "TDec1302RTC"
+                        "TDec1302RTC",
+                        null,
+                        null
                 ))
         );
     }
@@ -737,7 +805,9 @@ class ImpactAnalysisServiceTest {
                         schemaPath,
                         symbolName,
                         before,
-                        after
+                        after,
+                        null,
+                        null
                 ))
         );
     }
@@ -758,7 +828,9 @@ class ImpactAnalysisServiceTest {
                         "complexType:TCIBS/element:vBC",
                         "vBC",
                         "TDec1302",
-                        "TDec1302RTC"
+                        "TDec1302RTC",
+                        null,
+                        null
                 ))
         );
     }
