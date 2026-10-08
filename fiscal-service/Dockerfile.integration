@@ -1,0 +1,15 @@
+FROM maven:3.9-eclipse-temurin-21 AS build
+WORKDIR /build
+COPY pom.xml ./
+COPY src ./src
+# Não executa a suíte: ela pode depender do banco do ambiente atual.
+RUN mvn -B -DskipTests package
+
+FROM eclipse-temurin:21-jre
+WORKDIR /app
+COPY --from=build /build/target/fiscal-service-0.0.1-SNAPSHOT.jar /app/fiscal-service.jar
+COPY integration/application.yaml /app/application-integration.yaml
+USER 10001:10001
+EXPOSE 8080
+# config.location substitui a configuração padrão embutida no JAR.
+ENTRYPOINT ["java", "-jar", "/app/fiscal-service.jar", "--spring.config.location=file:/app/application-integration.yaml"]

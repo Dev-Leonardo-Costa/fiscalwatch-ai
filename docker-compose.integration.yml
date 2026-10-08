@@ -1,0 +1,67 @@
+name: fiscalwatch-integration
+
+services:
+  postgres-it:
+    image: postgres:17
+    container_name: fiscalwatch-it-postgres
+    environment:
+      POSTGRES_DB: fiscalwatch_it
+      POSTGRES_USER: fiscalwatch_it
+      POSTGRES_PASSWORD: integration-only-postgres
+    ports:
+      - "127.0.0.1:5434:5432"
+    volumes:
+      - postgres_it_data:/var/lib/postgresql/data
+    networks:
+      - integration
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "fiscalwatch_it", "-d", "fiscalwatch_it"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  rabbitmq-it:
+    image: rabbitmq:4-management
+    container_name: fiscalwatch-it-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: fiscalwatch_it
+      RABBITMQ_DEFAULT_PASS: integration-only-rabbitmq
+      RABBITMQ_DEFAULT_VHOST: fiscalwatch_it
+    ports:
+      - "127.0.0.1:5673:5672"
+      - "127.0.0.1:15673:15672"
+    volumes:
+      - rabbitmq_it_data:/var/lib/rabbitmq
+    networks:
+      - integration
+    healthcheck:
+      test: ["CMD", "gosu", "rabbitmq", "rabbitmq-diagnostics", "-q", "check_running"]
+      interval: 5s
+      timeout: 10s
+      retries: 20
+      start_period: 20s
+
+  fiscal-service-it:
+    image: fiscalwatch-fiscal-service-integration:local
+    build:
+      context: ./fiscal-service
+      dockerfile: Dockerfile.integration
+    container_name: fiscalwatch-it-fiscal-service
+    depends_on:
+      postgres-it:
+        condition: service_healthy
+      rabbitmq-it:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8081:8080"
+    networks:
+      - integration
+
+networks:
+  integration:
+    driver: bridge
+
+volumes:
+  postgres_it_data:
+  rabbitmq_it_data:

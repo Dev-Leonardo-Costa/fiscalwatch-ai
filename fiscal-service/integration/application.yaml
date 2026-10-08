@@ -1,0 +1,30 @@
+# Credenciais públicas, exclusivas deste ambiente local de desenvolvimento/teste.
+server:
+  port: 8080
+
+spring:
+  application:
+    name: fiscal-service-integration
+  datasource:
+    url: jdbc:postgresql://postgres-it:5432/fiscalwatch_it
+    username: fiscalwatch_it
+    password: integration-only-postgres
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+  flyway:
+    enabled: true
+  rabbitmq:
+    host: rabbitmq-it
+    port: 5672
+    username: fiscalwatch_it
+    password: integration-only-rabbitmq
+    virtual-host: fiscalwatch_it
+    publisher-confirm-type: correlated
+    publisher-returns: true
+    template:
+      mandatory: true
+    listener:
+      simple:
+        default-requeue-rejected: false
