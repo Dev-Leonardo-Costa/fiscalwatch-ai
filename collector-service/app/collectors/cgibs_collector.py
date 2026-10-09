@@ -344,8 +344,11 @@ def _normalize_cgibs_file_title(title: str) -> str:
 
 
 def _extract_cgibs_file_version(title: str) -> tuple[int, ...]:
+    # Aceita componentes separados por pontos ou espaços, sem aproveitar
+    # um prefixo numérico de versões malformadas ou com sufixos.
     match = re.search(
-        r"\bv\s*\.?\s*(\d+(?:\s+\d+)*)",
+        r"\bv\s*\.?\s*([0-9]+(?:(?:\s*\.\s*|\s+)[0-9]+)*)"
+        r"(?![\w.]|-[\w]|\s*\.)",
         title,
         flags=re.IGNORECASE
     )
@@ -355,7 +358,7 @@ def _extract_cgibs_file_version(title: str) -> tuple[int, ...]:
 
     return tuple(
         int(part)
-        for part in match.group(1).split()
+        for part in re.split(r"[.\s]+", match.group(1))
     )
 
 

@@ -1,6 +1,8 @@
 import json
 from datetime import datetime
 
+import pytest
+
 from app.collectors import cgibs_collector
 
 
@@ -212,3 +214,65 @@ def test_deve_retornar_ausencia_quando_nao_existir_pdf_adequado(
     selected_file = cgibs_collector.select_cgibs_main_technical_file(files)
 
     assert selected_file is None
+
+
+@pytest.mark.parametrize("versao, esperado", [
+    ("v1.3.0", (1, 3, 0)),
+    ("v1.4.0", (1, 4, 0)),
+    ("v 1 3 0", (1, 3, 0)),
+    ("V 1 4 0", (1, 4, 0)),
+    ("v. 1 3 0", (1, 3, 0)),
+    ("v.1.4.0", (1, 4, 0)),
+    ("v 1 . 4 . 0", (1, 4, 0)),
+    ("v1.10.0", (1, 10, 0)),
+    ("v01.04.00", (1, 4, 0)),
+    ("v1.4", (1, 4)),
+    ("v1", (1,)),
+])
+def test_deve_extrair_versoes_pontuadas_e_com_espacos(versao, esperado):
+    titulo = f"Regras de Validação ({versao})"
+
+    assert cgibs_collector._extract_cgibs_file_version(titulo) == esperado
+
+
+@pytest.mark.parametrize("versao", [
+    "", "sem versão", "v", "vabc", "v-1.3.0", "v1..3.0",
+    "v1.3.", "v1.3.x", "v1.3.0a", "v1.3.0-rc1", "av1.3.0",
+])
+def test_deve_retornar_tupla_vazia_para_versao_ausente_ou_invalida(versao):
+    titulo = f"Regras de Validação ({versao})"
+
+    assert cgibs_collector._extract_cgibs_file_version(titulo) == ()
+
+
+@pytest.mark.parametrize("anterior, recente", [
+    ("v1.3.0", "v1.4.0"),
+    ("v 1 3 0", "v1.4.0"),
+    ("v1.3.0", "v 1 4 0"),
+    ("v1.9.0", "v1.10.0"),
+    ("v1.99.0", "v2.0.0"),
+    ("v1.4.0", "v1.4.1"),
+])
+@pytest.mark.parametrize("inverter_ordem", [False, True])
+def test_deve_selecionar_pdf_com_maior_versao_numericamente(
+    anterior, recente, inverter_ordem
+):
+    arquivos = [
+        {"title": f"Regras de Validação ({versao})", "file_type": "PDF",
+         "url": f"https://example.com/regras-{indice}.pdf"}
+        for indice, versao in enumerate([anterior, recente])
+    ]
+    esperado = arquivos[1]
+    if inverter_ordem:
+        arquivos.reverse()
+
+    assert cgibs_collector.select_cgibs_main_technical_file(arquivos) is esperado
+
+
+def test_deve_priorizar_versao_valida_sobre_versao_invalida():
+    invalido = {"title": "Regras de Validação (v9..9)", "file_type": "PDF"}
+    valido = {"title": "Regras de Validação (v1.4.0)", "file_type": "PDF"}
+
+    assert cgibs_collector.select_cgibs_main_technical_file(
+        [invalido, valido]
+    ) is valido
