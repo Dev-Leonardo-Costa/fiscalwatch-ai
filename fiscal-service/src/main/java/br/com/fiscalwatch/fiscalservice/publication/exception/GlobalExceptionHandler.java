@@ -1,6 +1,7 @@
 package br.com.fiscalwatch.fiscalservice.publication.exception;
 
 import br.com.fiscalwatch.fiscalservice.impactanalysis.exception.ImpactAnalysisNotFoundException;
+import br.com.fiscalwatch.fiscalservice.impactanalysis.exception.InvalidPublicationDocumentException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -14,6 +15,13 @@ import java.time.LocalDateTime;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+
+    @ExceptionHandler(InvalidPublicationDocumentException.class)
+    public ResponseEntity<ApiErrorResponse> handleInvalidPublicationDocument(
+            InvalidPublicationDocumentException exception) {
+        return ResponseEntity.status(422).body(new ApiErrorResponse(
+                LocalDateTime.now(), 422, "Unprocessable Entity", exception.getMessage()));
+    }
 
     @ExceptionHandler(PublicationNotFoundException.class)
     public ResponseEntity<ApiErrorResponse> handlePublicationNotFound(

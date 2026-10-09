@@ -15,6 +15,10 @@ public interface PublicationRepository extends JpaRepository<PublicationEntity, 
     Optional<PublicationEntity> findByExternalId(String externalId);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select publication from PublicationEntity publication where publication.id = :id")
+    Optional<PublicationEntity> findByIdForUpdate(@Param("id") Long id);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select publication from PublicationEntity publication "
             + "where publication.externalId = :externalId")
     Optional<PublicationEntity> findByExternalIdForUpdate(

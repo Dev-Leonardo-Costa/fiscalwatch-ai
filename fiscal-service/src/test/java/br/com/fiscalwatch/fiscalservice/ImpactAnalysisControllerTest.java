@@ -6,6 +6,7 @@ import br.com.fiscalwatch.fiscalservice.impactanalysis.dto.SchemaComparisonReque
 import br.com.fiscalwatch.fiscalservice.impactanalysis.enums.AnalysisStatus;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.enums.ImpactLevel;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.exception.ImpactAnalysisNotFoundException;
+import br.com.fiscalwatch.fiscalservice.impactanalysis.exception.InvalidPublicationDocumentException;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.service.ImpactAnalysisService;
 import br.com.fiscalwatch.fiscalservice.publication.exception.GlobalExceptionHandler;
 import br.com.fiscalwatch.fiscalservice.publication.exception.PublicationNotFoundException;
@@ -71,6 +72,16 @@ class ImpactAnalysisControllerTest {
                 .andExpect(jsonPath("$.status").value("COMPLETED"));
 
         verify(impactAnalysisService).analyzePublication(publicationId);
+    }
+
+    @Test
+    void deveRetornar422QuandoDocumentoNaoPermitirAnalise() throws Exception {
+        when(impactAnalysisService.analyzePublication(10L))
+                .thenThrow(new InvalidPublicationDocumentException());
+        mockMvc.perform(post("/api/impact-analyses/publications/10/analyze"))
+                .andExpect(status().is(422))
+                .andExpect(jsonPath("$.status").value(422))
+                .andExpect(jsonPath("$.message").isNotEmpty());
     }
 
     @Test

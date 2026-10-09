@@ -23,16 +23,20 @@ import br.com.fiscalwatch.fiscalservice.impactanalysis.entity.TechnicalImpact;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.enums.AnalysisStatus;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.enums.ImpactLevel;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.exception.ImpactAnalysisNotFoundException;
+import br.com.fiscalwatch.fiscalservice.impactanalysis.exception.InvalidPublicationDocumentException;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.mapper.ImpactAnalysisMapper;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.repository.ImpactAnalysisRepository;
 import br.com.fiscalwatch.fiscalservice.publication.entity.PublicationDocumentEntity;
 import br.com.fiscalwatch.fiscalservice.publication.entity.PublicationEntity;
+import br.com.fiscalwatch.fiscalservice.publication.enums.ExtractionStatus;
+import br.com.fiscalwatch.fiscalservice.publication.versioning.PublicationSnapshotHasher;
 import br.com.fiscalwatch.fiscalservice.publication.exception.PublicationNotFoundException;
 import br.com.fiscalwatch.fiscalservice.publication.repository.PublicationDocumentRepository;
 import br.com.fiscalwatch.fiscalservice.publication.repository.PublicationRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Isolation;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -87,8 +91,14 @@ public class ImpactAnalysisService {
                 .toList();
     }
 
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public ImpactAnalysisResponse create(ImpactAnalysisRequest request) {
+
+        // Impede que a criação genérica contorne a regra da versão documental reservada.
+        // A transação de create já está ativa mesmo nesta chamada interna.
+        if (AUTOMATIC_ANALYSIS_VERSION.equals(request.analysisVersion())) {
+            return analyzePublication(request.publicationId());
+        }
 
         PublicationEntity publication = publicationRepository
                 .findById(request.publicationId())
@@ -114,20 +124,36 @@ public class ImpactAnalysisService {
         return saveAndMap(impactAnalysis);
     }
 
-    @Transactional
+    /**
+     * O lock permanece até o commit/rollback e serializa os acionamentos manual
+     * e automático desta publicação, inclusive com o fluxo de recuperação do documento.
+     * A versão automatic-v1 é documental; comparações de schemas são independentes.
+     * Todos os acionamentos automáticos devem passar por este método transacional.
+     * Não deve ser chamado dentro de uma transação com isolamento mais restritivo:
+     * READ_COMMITTED permite enxergar a análise confirmada pelo detentor anterior do lock.
+     */
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public ImpactAnalysisResponse analyzePublication(Long publicationId) {
 
         PublicationEntity publication = publicationRepository
-                .findById(publicationId)
+                .findByIdForUpdate(publicationId)
                 .orElseThrow(
                         () -> new PublicationNotFoundException(publicationId)
                 );
 
+        var existing = impactAnalysisRepository
+                .findFirstByPublicationIdAndAnalysisVersionAndStatusOrderByIdAsc(
+                        publicationId, AUTOMATIC_ANALYSIS_VERSION, AnalysisStatus.COMPLETED);
+        if (existing.isPresent()) {
+            return impactAnalysisMapper.toResponse(existing.get());
+        }
+
+        PublicationDocumentEntity persistedDocument = publicationDocumentRepository
+                .findByPublicationId(publicationId)
+                .orElseThrow(InvalidPublicationDocumentException::new);
+        validateDocument(persistedDocument);
         PublicationDocumentAnalysisInput document =
-                publicationDocumentRepository
-                        .findByPublicationId(publicationId)
-                        .map(this::toPublicationDocumentAnalysisInput)
-                        .orElse(null);
+                toPublicationDocumentAnalysisInput(persistedDocument);
 
         PublicationAnalysisInput input = toPublicationAnalysisInput(
                 publication,
@@ -142,6 +168,26 @@ public class ImpactAnalysisService {
         );
 
         return saveAndMap(impactAnalysis);
+    }
+
+    private void validateDocument(PublicationDocumentEntity document) {
+        String text = document.getContentText();
+        String hash = document.getContentHash();
+        if (document.getExtractionStatus() != ExtractionStatus.EXTRACTED
+                || text == null || text.isBlank() || document.getExtractionError() != null
+                || hash == null || !hash.matches("[0-9a-fA-F]{64}")
+                || document.getContentLength() == null
+                // Python len(text) conta code points, não unidades UTF-16.
+                || document.getContentLength() != text.codePointCount(0, text.length())) {
+            throw new InvalidPublicationDocumentException();
+        }
+        try {
+            if (!PublicationSnapshotHasher.calculateContentHash(text).equalsIgnoreCase(hash)) {
+                throw new InvalidPublicationDocumentException();
+            }
+        } catch (IllegalArgumentException exception) {
+            throw new InvalidPublicationDocumentException();
+        }
     }
 
     @Transactional

@@ -31,6 +31,9 @@ import br.com.fiscalwatch.fiscalservice.publication.repository.PublicationDocume
 import br.com.fiscalwatch.fiscalservice.publication.repository.PublicationRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
@@ -52,6 +55,9 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.inOrder;
+import br.com.fiscalwatch.fiscalservice.impactanalysis.exception.InvalidPublicationDocumentException;
+import br.com.fiscalwatch.fiscalservice.publication.versioning.PublicationSnapshotHasher;
 
 @ExtendWith(MockitoExtension.class)
 class ImpactAnalysisServiceTest {
@@ -244,10 +250,10 @@ class ImpactAnalysisServiceTest {
         ImpactAnalysisResult analysisResult = criarResultadoAnalise();
         ImpactAnalysisResponse response = criarResponse(1L, publicationId);
 
-        when(publicationRepository.findById(publicationId))
+        when(publicationRepository.findByIdForUpdate(publicationId))
                 .thenReturn(Optional.of(publication));
         when(publicationDocumentRepository.findByPublicationId(publicationId))
-                .thenReturn(Optional.empty());
+                .thenReturn(Optional.of(criarDocumento(publication)));
         when(impactAnalyzer.analyze(any(PublicationAnalysisInput.class)))
                 .thenReturn(analysisResult);
         when(impactAnalysisRepository.save(any(ImpactAnalysis.class)))
@@ -263,7 +269,7 @@ class ImpactAnalysisServiceTest {
         ArgumentCaptor<ImpactAnalysis> analysisCaptor =
                 ArgumentCaptor.forClass(ImpactAnalysis.class);
 
-        verify(publicationRepository).findById(publicationId);
+        verify(publicationRepository).findByIdForUpdate(publicationId);
         verify(impactAnalyzer).analyze(inputCaptor.capture());
         verify(impactAnalysisRepository).save(analysisCaptor.capture());
         verify(impactAnalysisMapper).toResponse(analysisCaptor.getValue());
@@ -279,7 +285,7 @@ class ImpactAnalysisServiceTest {
         assertEquals(publication.getModifiedAt(), input.modifiedAt());
         assertEquals(publication.getDescription(), input.description());
         assertEquals(publication.getDownloadUrl(), input.downloadUrl());
-        assertNull(input.document());
+        assertNotNull(input.document());
 
         ImpactAnalysis saved = analysisCaptor.getValue();
 
@@ -334,7 +340,7 @@ class ImpactAnalysisServiceTest {
         ImpactAnalysisResult analysisResult = criarResultadoAnalise();
         ImpactAnalysisResponse response = criarResponse(1L, publicationId);
 
-        when(publicationRepository.findById(publicationId))
+        when(publicationRepository.findByIdForUpdate(publicationId))
                 .thenReturn(Optional.of(publication));
         when(publicationDocumentRepository.findByPublicationId(publicationId))
                 .thenReturn(Optional.of(document));
@@ -395,7 +401,7 @@ class ImpactAnalysisServiceTest {
 
         Long publicationId = 10L;
 
-        when(publicationRepository.findById(publicationId))
+        when(publicationRepository.findByIdForUpdate(publicationId))
                 .thenReturn(Optional.empty());
 
         assertThrows(
@@ -415,10 +421,10 @@ class ImpactAnalysisServiceTest {
         PublicationEntity publication = criarPublicacao(publicationId);
         RuntimeException exception = new RuntimeException("falha no analyzer");
 
-        when(publicationRepository.findById(publicationId))
+        when(publicationRepository.findByIdForUpdate(publicationId))
                 .thenReturn(Optional.of(publication));
         when(publicationDocumentRepository.findByPublicationId(publicationId))
-                .thenReturn(Optional.empty());
+                .thenReturn(Optional.of(criarDocumento(publication)));
         when(impactAnalyzer.analyze(any(PublicationAnalysisInput.class)))
                 .thenThrow(exception);
 
@@ -731,6 +737,102 @@ class ImpactAnalysisServiceTest {
         verify(impactAnalysisRepository, never()).save(any());
     }
 
+    @Test
+    void deveRetornarAnaliseDocumentalConcluidaAntesDeConsultarDocumento() {
+        PublicationEntity publication = criarPublicacao(10L);
+        ImpactAnalysis existing = new ImpactAnalysis();
+        existing.setId(3L);
+        existing.setPublication(publication);
+        existing.setAnalysisVersion("automatic-v1");
+        existing.setStatus(AnalysisStatus.COMPLETED);
+        var response = criarResponse(3L, 10L);
+        when(publicationRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(publication));
+        when(impactAnalysisRepository
+                .findFirstByPublicationIdAndAnalysisVersionAndStatusOrderByIdAsc(
+                        10L, "automatic-v1", AnalysisStatus.COMPLETED))
+                .thenReturn(Optional.of(existing));
+        when(impactAnalysisMapper.toResponse(existing)).thenReturn(response);
+
+        assertSame(response, impactAnalysisService.analyzePublication(10L));
+        var order = inOrder(publicationRepository, impactAnalysisRepository);
+        order.verify(publicationRepository).findByIdForUpdate(10L);
+        order.verify(impactAnalysisRepository)
+                .findFirstByPublicationIdAndAnalysisVersionAndStatusOrderByIdAsc(
+                        10L, "automatic-v1", AnalysisStatus.COMPLETED);
+        verify(publicationDocumentRepository, never()).findByPublicationId(any());
+        verify(impactAnalyzer, never()).analyze(any());
+        verify(impactAnalysisRepository, never()).save(any());
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = ExtractionStatus.class, names = {"FAILED", "PENDING", "EMPTY"})
+    void naoDeveAnalisarDocumentoSemExtracaoValida(ExtractionStatus status) {
+        var publication = criarPublicacao(10L);
+        var document = criarDocumento(publication);
+        document.setExtractionStatus(status);
+        assertDocumentoRejeitado(publication, document);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"semDocumento", "textoNulo", "textoVazio", "textoEmBranco",
+            "hashAusente", "hashInvalido", "hashDiferente", "comprimentoAusente",
+            "comprimentoDiferente", "comprimentoNegativo", "erroExtracao", "unicodeInvalido"})
+    void naoDeveAnalisarDocumentoVazioOuInconsistente(String caso) {
+        var publication = criarPublicacao(10L);
+        var document = criarDocumento(publication);
+        switch (caso) {
+            case "semDocumento" -> document = null;
+            case "textoNulo" -> document.setContentText(null);
+            case "textoVazio" -> document.setContentText("");
+            case "textoEmBranco" -> document.setContentText(" \n\t");
+            case "hashAusente" -> document.setContentHash(null);
+            case "hashInvalido" -> document.setContentHash("hash");
+            case "hashDiferente" -> document.setContentHash("a".repeat(64));
+            case "comprimentoAusente" -> document.setContentLength(null);
+            case "comprimentoDiferente" -> document.setContentLength(1);
+            case "comprimentoNegativo" -> document.setContentLength(-1);
+            case "erroExtracao" -> document.setExtractionError("extração parcial");
+            case "unicodeInvalido" -> {
+                document.setContentText("\uD800");
+                document.setContentLength(1);
+            }
+            default -> throw new AssertionError(caso);
+        }
+        assertDocumentoRejeitado(publication, document);
+    }
+
+    @Test
+    void deveAceitarUnicodeEHashMaiusculoCompativeisComPython() {
+        var publication = criarPublicacao(10L);
+        var document = criarDocumento(publication);
+        String text = "Tributação \uD83D\uDE00";
+        document.setContentText(text);
+        document.setContentLength(text.codePointCount(0, text.length()));
+        document.setContentHash(PublicationSnapshotHasher.calculateContentHash(text)
+                .toUpperCase(java.util.Locale.ROOT));
+        when(publicationRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(publication));
+        when(publicationDocumentRepository.findByPublicationId(10L)).thenReturn(Optional.of(document));
+        when(impactAnalyzer.analyze(any())).thenReturn(criarResultadoAnalise());
+        when(impactAnalysisRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+        when(impactAnalysisMapper.toResponse(any(ImpactAnalysis.class)))
+                .thenReturn(criarResponse(1L, 10L));
+
+        impactAnalysisService.analyzePublication(10L);
+
+        verify(impactAnalysisRepository).save(any());
+    }
+
+    private void assertDocumentoRejeitado(PublicationEntity publication,
+                                         PublicationDocumentEntity document) {
+        when(publicationRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(publication));
+        when(publicationDocumentRepository.findByPublicationId(10L))
+                .thenReturn(Optional.ofNullable(document));
+        assertThrows(InvalidPublicationDocumentException.class,
+                () -> impactAnalysisService.analyzePublication(10L));
+        verify(impactAnalyzer, never()).analyze(any());
+        verify(impactAnalysisRepository, never()).save(any());
+    }
+
     private ImpactAnalysisRequest criarRequest(Long publicationId) {
 
         return new ImpactAnalysisRequest(
@@ -880,7 +982,8 @@ class ImpactAnalysisServiceTest {
         document.setPublication(publication);
         document.setSourceUrl("https://example.com/nota-tecnica.pdf");
         document.setContentText("Texto oficial extraido da publicacao.");
-        document.setContentHash("a".repeat(64));
+        document.setContentHash(br.com.fiscalwatch.fiscalservice.publication.versioning.PublicationSnapshotHasher
+                .calculateContentHash(document.getContentText()));
         document.setContentLength(document.getContentText().length());
         document.setExtractionStatus(ExtractionStatus.EXTRACTED);
         document.setExtractionError(null);
