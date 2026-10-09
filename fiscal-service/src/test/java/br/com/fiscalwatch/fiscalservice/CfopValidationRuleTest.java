@@ -2,6 +2,7 @@ package br.com.fiscalwatch.fiscalservice;
 
 import br.com.fiscalwatch.fiscalservice.fiscalchange.FiscalChange;
 import br.com.fiscalwatch.fiscalservice.fiscalchange.FiscalChangeType;
+import br.com.fiscalwatch.fiscalservice.fiscalchange.RuleBasedFiscalChangeDetector;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.analyzer.EvidenceResult;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.analyzer.rules.CfopValidationRule;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.analyzer.rules.DocumentContext;
@@ -10,18 +11,116 @@ import br.com.fiscalwatch.fiscalservice.impactanalysis.analyzer.rules.RuleMatch;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.enums.ImpactLevel;
 import br.com.fiscalwatch.fiscalservice.publication.enums.DocumentType;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class CfopValidationRuleTest {
 
     private final CfopValidationRule rule = new CfopValidationRule();
+
+    @Test
+    void naoDeveRecomendarCfopParaNt2021003V121SobreGtin() {
+        // Trechos do conteúdo armazenado da publicação 94, consultado na investigação.
+        String contentText = "Sistema Nota Fiscal Eletrônica\n\n"
+                + "Nota Técnica 2021.003\nValidação GTIN\n"
+                + "Versão 1.21 – maio de 2023\n\n"
+                + "Anexo II – CFOP para validação do GTIN\n\n"
+                + "Mantida a verificação da existência do GTIN no CCG somente "
+                + "para as operações de venda da Indústria "
+                + "(CFOP de Venda Produção do Estabelecimento);";
+
+        assertTrue(new RuleBasedFiscalChangeDetector()
+                .detect(contextoComDocumento(contentText).documentContext()).isEmpty());
+        assertTrue(rule.evaluate(contextoComDocumento(contentText)).isEmpty());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "Validação de GTIN: aplicar somente ao CFOP de venda de produção do estabelecimento.",
+            "Alteração da regra de validação de GTIN para operações com CFOP 5.101.",
+            "Alteração da regra de validação do GTIN. Anexo II: CFOP para validação do GTIN.",
+            "Regra de validação de CFOP mantida sem alteração.",
+            "A publicação não altera regra de validação de CFOP.",
+            "Sem alteração de regra de validação de CFOP.",
+            "Alteração da regra de validação de GTIN\n\nTabela informativa: CFOP 5.101."
+    })
+    void naoDeveConfundirCondicaoOuMencaoComMudancaEspecificaCfop(String contentText) {
+        assertTrue(rule.evaluate(contextoComDocumento(contentText)).isEmpty());
+    }
+
+    @Test
+    void naoDeveAssociarAlteracaoValidacaoECfopDistantes() {
+        String contentText = "Alteração da regra de validação de GTIN."
+                + "X".repeat(500) + "CFOP 5.101 em tabela informativa.";
+        assertTrue(rule.evaluate(contextoComDocumento(contentText)).isEmpty());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "Alteração da regra de validação de CFOP.",
+            "ALTERACAO DA REGRA DE VALIDACAO DE CFOP.",
+            "Esta NT modifica as regras de validação dos CFOP.",
+            "Alteração de Regra de Validação de\nCFOP aplicada à NF-e.",
+            "Esta NT altera a validação de CFOP."
+    })
+    void devePreservarDeclaracoesExplicitasDeMudancaCfop(String contentText) {
+        RuleMatch match = rule.evaluate(contextoComDocumento(contentText)).orElseThrow();
+        assertTrue(match.evidences().getFirst().excerpt().contains(contentText));
+    }
+
+    @Test
+    void deveUsarEvidenceDaMudancaCfopEmVezDaPrimeiraValidacaoDoDocumento() {
+        String cover = "Nota Técnica\nValidação GTIN\n\n" + "X".repeat(300) + "\n\n";
+        String change = "Esta NT altera a regra de validação de CFOP aplicada à NF-e.";
+        String contentText = cover + change + "\n\n" + "Y".repeat(200);
+        var evidence = rule.evaluate(contextoComDocumento(contentText))
+                .orElseThrow().evidences().getFirst();
+
+        assertTrue(evidence.excerpt().contains(change));
+        assertFalse(evidence.excerpt().contains("Validação GTIN"));
+        assertEquals(contentText.substring(evidence.startPosition(), evidence.endPosition()),
+                evidence.excerpt());
+        assertEquals("https://example.com/documento.pdf", evidence.sourceUrl());
+    }
+
+    @Test
+    void deveEncontrarMudancaPositivaDepoisDeDeclaracaoNegada() {
+        String contentText = "Não altera regra de validação de CFOP para devoluções. "
+                + "Altera a regra de validação de CFOP para vendas.";
+        assertTrue(rule.evaluate(contextoComDocumento(contentText)).isPresent());
+    }
+
+    @Test
+    void naoDeveConstruirMudancaCfopJuntandoCamposIndependentes() {
+        var context = new DocumentContext("Alteração da regra de validação de",
+                "CFOP consta no anexo informativo de GTIN.", DocumentType.NOTA_TECNICA,
+                "https://example.com/publicacao.pdf", "Validação de GTIN.",
+                "https://example.com/documento.pdf", true);
+        assertTrue(rule.evaluate(new FiscalAnalysisContext(context, List.of())).isEmpty());
+    }
+
+    @Test
+    void deveUsarMetadadoExplicitoComoEvidenceSemOffsetsDocumentais() {
+        String description = "Esta NT altera a regra de validação de CFOP aplicada à NF-e.";
+        var context = new DocumentContext("Comunicado fiscal", description,
+                DocumentType.NOTA_TECNICA, "https://example.com/publicacao.pdf",
+                null, null, false);
+        var evidence = rule.evaluate(new FiscalAnalysisContext(context, List.of()))
+                .orElseThrow().evidences().getFirst();
+        assertEquals(description, evidence.excerpt());
+        assertEquals(context.publicationDownloadUrl(), evidence.sourceUrl());
+        assertNull(evidence.startPosition());
+        assertNull(evidence.endPosition());
+    }
 
     @Test
     void deveGerarMatchParaCfopComRegraDeValidacao() {
@@ -118,8 +217,8 @@ class CfopValidationRuleTest {
 
     @Test
     void deveGerarEvidenceRealCurtaComOffsetsExatos() {
-        String contentText = "A".repeat(120)
-                + "regra de validação de CFOP"
+        String contentText = "A".repeat(120) + " "
+                + "Alteração da regra de validação de CFOP"
                 + " Nota Fiscal Eletrônica"
                 + "B".repeat(120);
 

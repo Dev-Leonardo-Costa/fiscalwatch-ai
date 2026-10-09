@@ -35,6 +35,28 @@ class RuleBasedImpactAnalyzerTest {
     }
 
     @Test
+    void naoDeveGerarImpactosOuAcoesCfopParaValidacaoGtin() {
+        String contentText = "Nota Técnica 2021.003\nValidação GTIN\n"
+                + "Versão 1.21 – maio de 2023\n\n"
+                + "3 Leiaute da Nota Fiscal Eletrônica\n"
+                + "Anexo II – CFOP para validação do GTIN\n\n"
+                + "Mantida a verificação da existência do GTIN no CCG somente "
+                + "para as operações de venda da Indústria "
+                + "(CFOP de Venda Produção do Estabelecimento);";
+        ImpactAnalysisResult result = analyzer.analyze(criarInput(
+                "Publicada a versão 1.21 da NT 2021.003 da NF-e, que trata da validação do GTIN.",
+                null, criarDocumento(ExtractionStatus.EXTRACTED,
+                        "https://example.com/documento.pdf", contentText)));
+
+        assertTrue(result.technicalImpacts().stream().noneMatch(impact ->
+                impact.title().contains("CFOP") || impact.description().contains("CFOP")));
+        assertTrue(result.actionItems().stream().noneMatch(action ->
+                action.title().contains("CFOP") || action.description().contains("CFOP")));
+        // A classificação global atual permanece fora do escopo desta correção.
+        assertEquals(ImpactLevel.HIGH, result.impactLevel());
+    }
+
+    @Test
     void deveRetornarAnaliseDeterministicaParaPublicacaoComSchema() {
 
         PublicationAnalysisInput input = criarInput(

@@ -11,33 +11,34 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public class CfopValidationRule implements FiscalRule {
 
     private static final String RULE_ID = "cfop-validation";
     private static final String AFFECTED_ELEMENT = "CFOP";
     private static final int COMPONENT_CLASSIFICATION_CONTEXT_CHARS = 180;
-    private static final List<String> EVIDENCE_TERMS = List.of(
-            "regra de validação",
-            "regra de validacao",
-            "validação",
-            "validacao",
-            "cfop"
+    private static final int EVIDENCE_CONTEXT_CHARS = 80;
+    // O objeto da alteração deve ser a validação de CFOP. Uma regra de GTIN
+    // que apenas usa CFOP como condição não satisfaz esta expressão.
+    private static final Pattern SPECIFIC_CFOP_CHANGE = Pattern.compile(
+            "\\b(?:altera(?:ção|cao)|alter(?:a|am|ou)|modifica(?:ção|cao)|"
+                    + "modific(?:a|am|ou)|revis(?:ão|ao))\\s+"
+                    + "(?:(?:a|as|da|das|de)\\s+)?"
+                    + "(?:regras?\\s+de\\s+)?valida(?:ção|cao|ções|coes)\\s+"
+                    + "(?:de|do|dos|para)\\s+(?:(?:o|os)\\s+)?cfop\\b",
+            Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE | Pattern.UNICODE_CHARACTER_CLASS
+    );
+    private static final Pattern NEGATION_BEFORE_CHANGE = Pattern.compile(
+            "\\b(?:não|nao|sem|nenhuma?)\\b",
+            Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE
     );
     private static final List<String> NFE_TERMS = List.of(
             "nf-e",
             "nota fiscal eletrônica",
             "nota fiscal eletronica"
     );
-    private final TextEvidenceExtractor evidenceExtractor;
-
-    public CfopValidationRule() {
-        this(new TextEvidenceExtractor());
-    }
-
-    CfopValidationRule(TextEvidenceExtractor evidenceExtractor) {
-        this.evidenceExtractor = evidenceExtractor;
-    }
 
     @Override
     public Optional<RuleMatch> evaluate(FiscalAnalysisContext context) {
@@ -50,18 +51,16 @@ public class CfopValidationRule implements FiscalRule {
         }
 
         DocumentContext documentContext = context.documentContext();
-        String text = documentContext.lowerAnalyzableText();
-
-        if (!text.contains("cfop") || !hasValidationContext(text)) {
+        Optional<TextChange> change = specificTextChange(documentContext);
+        if (change.isEmpty()) {
             return Optional.empty();
         }
 
-        EvidenceResult evidence = evidenceExtractor
-                .firstEvidenceForTerms(documentContext, EVIDENCE_TERMS)
-                .orElseGet(() -> fallbackEvidence(documentContext));
+        TextChange matchedChange = change.get();
+        EvidenceResult evidence = matchedChange.evidence();
         String affectedComponent = resolveAffectedComponent(
-                documentContext,
-                firstRuleOccurrencePosition(text)
+                matchedChange.sourceText(),
+                matchedChange.position()
         );
 
         return Optional.of(new RuleMatch(
@@ -219,39 +218,58 @@ public class CfopValidationRule implements FiscalRule {
         return value != null && !value.isBlank();
     }
 
-    private boolean hasValidationContext(String text) {
-        return text.contains("regra de validação")
-                || text.contains("regra de validacao")
-                || text.contains("validação")
-                || text.contains("validacao");
+    private Optional<TextChange> specificTextChange(DocumentContext context) {
+        if (context.documentExtracted()) {
+            Optional<TextChange> change = specificTextChange(
+                    context, context.documentContentText(), true);
+            if (change.isPresent()) {
+                return change;
+            }
+        }
+        // Não junta campos independentes para criar uma afirmação inexistente.
+        Optional<TextChange> titleChange = specificTextChange(context, context.title(), false);
+        return titleChange.isPresent() ? titleChange
+                : specificTextChange(context, context.description(), false);
     }
 
-    private EvidenceResult fallbackEvidence(DocumentContext context) {
-        String excerpt = context.description() != null
-                && !context.description().isBlank()
-                ? context.description()
-                : context.title();
+    private Optional<TextChange> specificTextChange(
+            DocumentContext context, String sourceText, boolean document
+    ) {
+        if (!hasText(sourceText)) {
+            return Optional.empty();
+        }
+        Matcher matcher = SPECIFIC_CFOP_CHANGE.matcher(sourceText);
+        while (matcher.find()) {
+            int statementStart = Math.max(sourceText.lastIndexOf('.', matcher.start() - 1),
+                    Math.max(sourceText.lastIndexOf(';', matcher.start() - 1),
+                            Math.max(sourceText.lastIndexOf('!', matcher.start() - 1),
+                                    sourceText.lastIndexOf('?', matcher.start() - 1)))) + 1;
+            String prefix = sourceText.substring(
+                    Math.max(statementStart, matcher.start() - EVIDENCE_CONTEXT_CHARS), matcher.start());
+            if (NEGATION_BEFORE_CHANGE.matcher(prefix).find()) {
+                continue;
+            }
 
-        return new EvidenceResult(
-                context.title(),
-                context.publicationDownloadUrl(),
-                null,
-                null,
-                excerpt,
-                null,
-                null
-        );
+            int start = Math.max(0, matcher.start() - EVIDENCE_CONTEXT_CHARS);
+            int end = Math.min(sourceText.length(), matcher.end() + EVIDENCE_CONTEXT_CHARS);
+            EvidenceResult evidence = new EvidenceResult(
+                    context.title(),
+                    document ? context.documentSourceUrlOrFallback() : context.publicationDownloadUrl(),
+                    null, null, sourceText.substring(start, end),
+                    document ? start : null, document ? end : null);
+            return Optional.of(new TextChange(sourceText, matcher.start(), evidence));
+        }
+        return Optional.empty();
     }
 
     private String resolveAffectedComponent(
-            DocumentContext context,
+            String text,
             int ruleOccurrencePosition
     ) {
         if (ruleOccurrencePosition < 0) {
             return null;
         }
 
-        String text = context.analyzableText();
         int start = Math.max(
                 0,
                 ruleOccurrencePosition - COMPONENT_CLASSIFICATION_CONTEXT_CHARS
@@ -271,11 +289,5 @@ public class CfopValidationRule implements FiscalRule {
         return null;
     }
 
-    private int firstRuleOccurrencePosition(String text) {
-        return EVIDENCE_TERMS.stream()
-                .mapToInt(text::indexOf)
-                .filter(position -> position >= 0)
-                .min()
-                .orElse(-1);
-    }
+    private record TextChange(String sourceText, int position, EvidenceResult evidence) { }
 }
