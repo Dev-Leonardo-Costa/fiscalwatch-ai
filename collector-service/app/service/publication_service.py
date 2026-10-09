@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+import re
 
 from app.model.publication import Publication
 
@@ -112,9 +113,18 @@ def is_relevant_publication(
         f"{publication.description or ''}"
     ).lower()
 
-    return any(
-        term in text
-        for term in relevant_terms
+    if any(term in text for term in relevant_terms):
+        return True
+
+    # IBS também identifica entidades não fiscais. Exige a sigla inteira
+    # e contexto tributário, preservando os filtros dos demais termos.
+    return (
+        re.search(r"\bibs\b", text) is not None
+        and re.search(
+            r"\b(?:al[ií]quotas?|impostos?|tribut[aá]ri[oa]s?|"
+            r"tributa[cç][aã]o|arrecada[cç][aã]o|apura[cç][aã]o)\b",
+            text
+        ) is not None
     )
 
 

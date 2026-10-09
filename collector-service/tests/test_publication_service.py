@@ -1,5 +1,7 @@
 from datetime import datetime
 
+import pytest
+
 from app.model.publication import Publication
 from datetime import datetime, timedelta
 
@@ -151,3 +153,74 @@ def test_deve_manter_apenas_publicacoes_das_ultimas_72_horas():
 
     assert len(resultado) == 1
     assert resultado[0].external_id == publicacao_recente.external_id
+
+
+@pytest.mark.parametrize("sigla", ["IBS", "ibs", "Ibs", "iBs"])
+@pytest.mark.parametrize("campo", ["title", "description"])
+def test_deve_reconhecer_ibs_independente_com_contexto_tributario(sigla, campo):
+    campos = {"title": "Comunicado", "description": None}
+    campos[campo] = f"Alteração de alíquota do {sigla}"
+    publicacao = Publication(
+        external_id="i" * 64,
+        source="IMPRENSA_NACIONAL_DOU",
+        document_type="OUTRO",
+        published_at=datetime.now(),
+        **campos
+    )
+
+    assert is_relevant_publication(publicacao) is True
+
+
+@pytest.mark.parametrize("texto", [
+    "Alíquota do (IBS).",
+    "IBS: apuração do imposto",
+    "Arrecadação do IBS/2026",
+    "Alteracao de aliquota do IBS",
+    "Tributação do IBS",
+])
+def test_deve_reconhecer_ibs_delimitado_por_pontuacao(texto):
+    publicacao = Publication(
+        external_id="j" * 64,
+        source="IMPRENSA_NACIONAL_DOU",
+        title=texto,
+        document_type="OUTRO",
+        published_at=datetime.now()
+    )
+
+    assert is_relevant_publication(publicacao) is True
+
+
+@pytest.mark.parametrize("sigla", [
+    "IBSPLUS", "PREIBS", "TRIBS", "IBS2", "2IBS", "IBS_ERP", "ÁIBS"
+])
+@pytest.mark.parametrize("campo", ["title", "description"])
+def test_nao_deve_reconhecer_ibs_dentro_de_palavra_maior(sigla, campo):
+    campos = {"title": "Comunicado", "description": None}
+    campos[campo] = f"Alteração de alíquota do {sigla}"
+    publicacao = Publication(
+        external_id="k" * 64,
+        source="IMPRENSA_NACIONAL_DOU",
+        document_type="OUTRO",
+        published_at=datetime.now(),
+        **campos
+    )
+
+    assert is_relevant_publication(publicacao) is False
+
+
+@pytest.mark.parametrize("texto", [
+    "Atualização da CBS",
+    "Atualização da NF-e",
+    "Atualização da NFC-e",
+    "Reforma Tributária",
+])
+def test_deve_preservar_termos_fiscais_existentes(texto):
+    publicacao = Publication(
+        external_id="l" * 64,
+        source="IMPRENSA_NACIONAL_DOU",
+        title=texto,
+        document_type="OUTRO",
+        published_at=datetime.now()
+    )
+
+    assert is_relevant_publication(publicacao) is True
