@@ -7,6 +7,7 @@ import br.com.fiscalwatch.fiscalservice.publication.dto.PublicationResponse;
 import br.com.fiscalwatch.fiscalservice.publication.entity.PublicationDocumentEntity;
 import br.com.fiscalwatch.fiscalservice.publication.entity.PublicationEntity;
 import br.com.fiscalwatch.fiscalservice.publication.enums.DocumentType;
+import br.com.fiscalwatch.fiscalservice.publication.enums.ExtractionStatus;
 import br.com.fiscalwatch.fiscalservice.publication.exception.PublicationAlreadyExistsException;
 import br.com.fiscalwatch.fiscalservice.publication.exception.PublicationNotFoundException;
 import br.com.fiscalwatch.fiscalservice.publication.mapper.PublicationMapper;
@@ -86,7 +87,7 @@ public class PublicationService {
         PublicationRequest request = event.publication();
 
         PublicationEntity publication = publicationRepository
-                .findByExternalId(request.externalId())
+                .findByExternalIdForUpdate(request.externalId())
                 .orElseGet(() -> publicationRepository.saveAndFlush(
                         publicationMapper.toEntity(request)
                 ));
@@ -97,17 +98,37 @@ public class PublicationService {
             return;
         }
 
-        boolean documentExists = publicationDocumentRepository
+        PublicationDocumentEntity existingDocument = publicationDocumentRepository
                 .findByPublicationId(publication.getId())
-                .isPresent();
+                .orElse(null);
 
-        if (documentExists) {
+        if (existingDocument != null) {
+            if (canRecover(existingDocument, document)) {
+                applyDocument(existingDocument, document);
+                publicationDocumentRepository.saveAndFlush(existingDocument);
+            }
             return;
         }
 
         publicationDocumentRepository.saveAndFlush(
                 toDocumentEntity(publication, document)
         );
+    }
+
+    /**
+     * Recuperação monotônica por qualidade, não por horário de chegada.
+     * Não substitui EXTRACTED/EMPTY nem implementa versões do documento.
+     * O lock da publicação serializa a criação/recuperação do seu documento
+     * mesmo quando ainda não existe uma linha em publication_documents.
+     */
+    private boolean canRecover(PublicationDocumentEntity existing,
+                               PublicationDocumentEvent incoming) {
+        return (existing.getExtractionStatus() == ExtractionStatus.FAILED
+                || existing.getExtractionStatus() == ExtractionStatus.PENDING)
+                && incoming.extractionStatus() == ExtractionStatus.EXTRACTED
+                && incoming.contentText() != null
+                && !incoming.contentText().isBlank()
+                && incoming.extractionError() == null;
     }
 
     private PublicationDocumentEntity toDocumentEntity(
@@ -118,6 +139,12 @@ public class PublicationService {
         PublicationDocumentEntity entity = new PublicationDocumentEntity();
 
         entity.setPublication(publication);
+        applyDocument(entity, document);
+        return entity;
+    }
+
+    private void applyDocument(PublicationDocumentEntity entity,
+                               PublicationDocumentEvent document) {
         entity.setSourceUrl(document.sourceUrl());
         entity.setContentText(document.contentText());
         entity.setContentHash(document.contentHash());
@@ -126,8 +153,6 @@ public class PublicationService {
         entity.setExtractionError(document.extractionError());
         entity.setExtractorVersion(document.extractorVersion());
         entity.setExtractedAt(document.extractedAt());
-
-        return entity;
     }
 
     private PublicationHistoryResponse toHistoryResponse(
