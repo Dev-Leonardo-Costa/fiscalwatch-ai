@@ -24,3 +24,10 @@ spring:
     listener:
       simple:
         default-requeue-rejected: false
+
+fiscalwatch:
+  impact-analysis-job:
+    enabled: ${FISCALWATCH_IMPACT_ANALYSIS_JOB_ENABLED:false}
+    fixed-delay-ms: ${FISCALWATCH_IMPACT_ANALYSIS_JOB_FIXED_DELAY_MS:300000}
+    initial-delay-ms: ${FISCALWATCH_IMPACT_ANALYSIS_JOB_INITIAL_DELAY_MS:300000}
+    batch-size: ${FISCALWATCH_IMPACT_ANALYSIS_JOB_BATCH_SIZE:20}

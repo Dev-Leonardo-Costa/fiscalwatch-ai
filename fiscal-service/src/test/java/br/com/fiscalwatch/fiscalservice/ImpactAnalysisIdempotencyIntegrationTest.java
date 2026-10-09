@@ -4,6 +4,9 @@ import br.com.fiscalwatch.fiscalservice.impactanalysis.analyzer.*;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.entity.ImpactAnalysis;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.dto.ImpactAnalysisRequest;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.dto.ImpactAnalysisResponse;
+import br.com.fiscalwatch.fiscalservice.impactanalysis.job.SvrsImpactAnalysisJob;
+import br.com.fiscalwatch.fiscalservice.impactanalysis.job.SvrsImpactAnalysisJobProperties;
+import br.com.fiscalwatch.fiscalservice.impactanalysis.controller.ImpactAnalysisController;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.enums.AnalysisStatus;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.enums.ImpactLevel;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.exception.InvalidPublicationDocumentException;
@@ -49,6 +52,9 @@ import static org.mockito.Mockito.*;
         "spring.datasource.password=",
         "spring.flyway.enabled=false",
         "spring.jpa.hibernate.ddl-auto=create-drop",
+        "fiscalwatch.impact-analysis-job.enabled=true",
+        "fiscalwatch.impact-analysis-job.initial-delay-ms=3600000",
+        "fiscalwatch.impact-analysis-job.fixed-delay-ms=3600000",
         "spring.rabbitmq.listener.simple.auto-startup=false"
 })
 class ImpactAnalysisIdempotencyIntegrationTest {
@@ -59,11 +65,13 @@ class ImpactAnalysisIdempotencyIntegrationTest {
     @Autowired private ImpactAnalysisRepository analyses;
     @Autowired private PlatformTransactionManager transactionManager;
     @Autowired private JdbcTemplate jdbc;
+    @Autowired private SvrsImpactAnalysisJob job;
     @MockitoBean private ImpactAnalyzer analyzer;
     @MockitoSpyBean private ImpactAnalysisMapper mapper;
 
     private PublicationRequest request;
     private Long publicationId;
+    private final List<Long> extraPublicationIds = new java.util.ArrayList<>();
 
     @BeforeEach
     void preparar() {
@@ -81,6 +89,14 @@ class ImpactAnalysisIdempotencyIntegrationTest {
     void removerSomenteFixtureEmMemoria() {
         if (publicationId == null) return;
         new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            for (Long extraId : extraPublicationIds) {
+                analyses.deleteAll(analyses.findByPublicationId(extraId));
+                analyses.flush();
+                documents.findByPublicationId(extraId).ifPresent(documents::delete);
+                documents.flush();
+                publications.deleteById(extraId);
+                publications.flush();
+            }
             analyses.deleteAll(analyses.findByPublicationId(publicationId));
             analyses.flush();
             documents.findByPublicationId(publicationId).ifPresent(documents::delete);
@@ -220,6 +236,164 @@ class ImpactAnalysisIdempotencyIntegrationTest {
         doCallRealMethod().when(mapper).toResponse(any(ImpactAnalysis.class));
         service.analyzePublication(publicationId);
         assertRelacionamentosUnicos();
+    }
+
+    @ParameterizedTest
+    @EnumSource(ExtractionStatus.class)
+    void consultaDePendenciasDeveSelecionarSomenteSvrsExtraido(ExtractionStatus status) {
+        new TransactionTemplate(transactionManager).executeWithoutResult(tx ->
+                documents.findByPublicationId(publicationId).orElseThrow().setExtractionStatus(status));
+        var pending = pendentes(20);
+        assertEquals(status == ExtractionStatus.EXTRACTED ? 1 : 0, pending.size());
+        if (!pending.isEmpty()) assertEquals(publicationId, pending.get(0).getPublication().getId());
+    }
+
+    @Test
+    void consultaDePendenciasDeveIgnorarOutrasFontesEDocumentoInvalido() {
+        new TransactionTemplate(transactionManager).executeWithoutResult(tx ->
+                publications.findById(publicationId).orElseThrow().setSource("OUTRA_FONTE"));
+        assertTrue(pendentes(20).isEmpty());
+        new TransactionTemplate(transactionManager).executeWithoutResult(tx -> {
+            publications.findById(publicationId).orElseThrow().setSource("SVRS");
+            documents.findByPublicationId(publicationId).orElseThrow().setContentHash(null);
+        });
+        assertTrue(pendentes(20).isEmpty());
+    }
+
+    @Test
+    void jobDeveIgnorarAnaliseDocumentalConcluidaESerIdempotenteNasReexecucoes() {
+        job.runOnce();
+        var first = service.findByPublicationId(publicationId).get(0);
+        assertTrue(pendentes(20).isEmpty());
+        job.runOnce();
+        job.runOnce();
+        assertEquals(first.id(), service.findByPublicationId(publicationId).get(0).id());
+        assertEquals(1, analyses.findByPublicationId(publicationId).size());
+        verify(analyzer, times(1)).analyze(any());
+    }
+
+    @Test
+    void jobDeveCriarDocumentalMesmoComAnaliseDeSchema() {
+        var schema = new ImpactAnalysis();
+        schema.setPublication(publications.findById(publicationId).orElseThrow());
+        schema.setStatus(AnalysisStatus.COMPLETED);
+        schema.setImpactLevel(ImpactLevel.HIGH);
+        schema.setAnalysisVersion("schema-comparison-v2");
+        analyses.saveAndFlush(schema);
+        assertEquals(1, pendentes(20).size());
+        job.runOnce();
+        assertEquals(2, analyses.findByPublicationId(publicationId).size());
+        assertTrue(pendentes(20).isEmpty());
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = ExtractionStatus.class, names = {"FAILED", "PENDING"})
+    void documentoRecuperadoDeveFicarElegivelParaJob(ExtractionStatus status) {
+        new TransactionTemplate(transactionManager).executeWithoutResult(tx ->
+                documents.findByPublicationId(publicationId).orElseThrow().setExtractionStatus(status));
+        assertTrue(pendentes(20).isEmpty());
+        persistir(ExtractionStatus.EXTRACTED);
+        assertEquals(1, pendentes(20).size());
+        job.runOnce();
+        assertEquals(1, analyses.findByPublicationId(publicationId).size());
+    }
+
+    @Test
+    void reinicioDoJobDeveRecuperarPendenciaAposFalhaSemControlePersistido() {
+        when(analyzer.analyze(any())).thenThrow(new IllegalStateException("Falha de teste"));
+        job.runOnce();
+        assertTrue(analyses.findByPublicationId(publicationId).isEmpty());
+        doReturn(resultado()).when(analyzer).analyze(any());
+        new SvrsImpactAnalysisJob(documents, service,
+                new SvrsImpactAnalysisJobProperties(true, 300000, 300000, 20)).runOnce();
+        assertEquals(1, analyses.findByPublicationId(publicationId).size());
+    }
+
+    @Test
+    void jobEPostConcorrentesDevemCompartilharLockEAnalise() throws Exception {
+        var entered = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        var postStarted = new CountDownLatch(1);
+        when(analyzer.analyze(any())).thenAnswer(invocation -> {
+            entered.countDown();
+            if (!release.await(10, TimeUnit.SECONDS)) throw new IllegalStateException("Timeout do teste");
+            return resultado();
+        });
+        var mvc = org.springframework.test.web.servlet.setup.MockMvcBuilders
+                .standaloneSetup(new ImpactAnalysisController(service)).build();
+        var executor = Executors.newFixedThreadPool(2);
+        try {
+            var scheduled = executor.submit(job::runOnce);
+            assertTrue(entered.await(10, TimeUnit.SECONDS));
+            var manual = executor.submit(() -> {
+                postStarted.countDown();
+                return mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                        .post("/api/impact-analyses/publications/{id}/analyze", publicationId))
+                        .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isCreated())
+                        .andReturn();
+            });
+            assertTrue(postStarted.await(10, TimeUnit.SECONDS));
+            assertThrows(TimeoutException.class, () -> manual.get(200, TimeUnit.MILLISECONDS));
+            release.countDown();
+            scheduled.get(15, TimeUnit.SECONDS);
+            var result = manual.get(15, TimeUnit.SECONDS);
+            var existing = service.findByPublicationId(publicationId).get(0);
+            org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.id")
+                    .value(existing.id()).match(result);
+            assertEquals(1, analyses.findByPublicationId(publicationId).size());
+            assertRelacionamentosUnicos();
+            verify(analyzer, times(1)).analyze(any());
+        } finally {
+            release.countDown();
+            executor.shutdownNow();
+            assertTrue(executor.awaitTermination(15, TimeUnit.SECONDS));
+        }
+    }
+
+    @Test
+    void falhaNoPrimeiroItemDeveReverterSomenteSuaTransacaoEConfirmarSegundo() {
+        Long secondId = criarPublicacaoExtra();
+        when(analyzer.analyze(any())).thenAnswer(invocation -> {
+            assertTrue(org.springframework.transaction.support.TransactionSynchronizationManager
+                    .isActualTransactionActive());
+            PublicationAnalysisInput input = invocation.getArgument(0);
+            if (input.id().equals(publicationId)) throw new IllegalStateException("Falha do primeiro item");
+            return resultado();
+        });
+        job.runOnce();
+        assertTrue(analyses.findByPublicationId(publicationId).isEmpty());
+        assertEquals(1, analyses.findByPublicationId(secondId).size());
+        assertEquals(AnalysisStatus.COMPLETED, service.findByPublicationId(secondId).get(0).status());
+    }
+
+    @Test
+    void consultaDeveRespeitarLimiteEOrdenacaoPorIdComCursor() {
+        Long secondId = criarPublicacaoExtra();
+        var firstBatch = pendentes(1);
+        assertEquals(1, firstBatch.size());
+        assertEquals(publicationId, firstBatch.get(0).getPublication().getId());
+        var next = documents.findPendingSvrsAnalysisDocuments(publicationId, ExtractionStatus.EXTRACTED,
+                "automatic-v1", AnalysisStatus.COMPLETED, org.springframework.data.domain.PageRequest.of(0, 1));
+        assertEquals(1, next.size());
+        assertEquals(secondId, next.get(0).getPublication().getId());
+    }
+
+    private Long criarPublicacaoExtra() {
+        var extra = new PublicationRequest(UUID.randomUUID().toString(), "SVRS", "Segunda NT",
+                DocumentType.NOTA_TECNICA, LocalDateTime.now(), null, "CFOP", request.downloadUrl());
+        String text = "Segundo documento válido";
+        publicationService.processEvent(new PublicationEvent("publication.discovered", LocalDateTime.now(), extra,
+                new PublicationDocumentEvent(extra.downloadUrl(), text,
+                        PublicationSnapshotHasher.calculateContentHash(text), text.length(), ExtractionStatus.EXTRACTED,
+                        null, "svrs-pypdf-v1", LocalDateTime.now())));
+        Long id = publications.findByExternalId(extra.externalId()).orElseThrow().getId();
+        extraPublicationIds.add(id);
+        return id;
+    }
+
+    private List<br.com.fiscalwatch.fiscalservice.publication.entity.PublicationDocumentEntity> pendentes(int size) {
+        return documents.findPendingSvrsAnalysisDocuments(0, ExtractionStatus.EXTRACTED,
+                "automatic-v1", AnalysisStatus.COMPLETED, org.springframework.data.domain.PageRequest.of(0, size));
     }
 
     private void assertMesmaRespostaPersistida(ImpactAnalysisResponse first,
