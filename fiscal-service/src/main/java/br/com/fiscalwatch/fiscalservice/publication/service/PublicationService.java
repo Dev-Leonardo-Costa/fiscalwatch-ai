@@ -1,6 +1,9 @@
 package br.com.fiscalwatch.fiscalservice.publication.service;
 
 import br.com.fiscalwatch.fiscalservice.publication.dto.PublicationRequest;
+import br.com.fiscalwatch.fiscalservice.publication.dto.PublicationCollectionState;
+import br.com.fiscalwatch.fiscalservice.impactanalysis.service.PublicationDocumentValidator;
+import br.com.fiscalwatch.fiscalservice.impactanalysis.exception.InvalidPublicationDocumentException;
 import br.com.fiscalwatch.fiscalservice.publication.dto.PublicationDocumentHistoryResponse;
 import br.com.fiscalwatch.fiscalservice.publication.dto.PublicationHistoryResponse;
 import br.com.fiscalwatch.fiscalservice.publication.dto.PublicationResponse;
@@ -25,6 +28,30 @@ import java.util.List;
 @RequiredArgsConstructor
 @Service
 public class PublicationService {
+
+    @Transactional(readOnly = true)
+    public PublicationCollectionState findSvrsCollectionState(String externalId) {
+        var publication = publicationRepository.findByExternalId(externalId);
+        if (publication.isEmpty()) {
+            return new PublicationCollectionState(
+                    externalId, false, null, false);
+        }
+        if (!"SVRS".equals(publication.get().getSource())) {
+            throw new IllegalArgumentException("Identidade não pertence à SVRS");
+        }
+        var document = publicationDocumentRepository.findByPublicationId(publication.get().getId());
+        boolean valid = false;
+        if (document.isPresent()) {
+            try {
+                PublicationDocumentValidator.validate(document.get());
+                valid = true;
+            } catch (InvalidPublicationDocumentException ignored) {
+                // EXTRACTED inválido não pode ser sobrescrito pelo contrato atual.
+            }
+        }
+        return new PublicationCollectionState(
+                externalId, true, document.map(PublicationDocumentEntity::getExtractionStatus).orElse(null), valid);
+    }
 
     private static final String EXTERNAL_ID_UNIQUE_CONSTRAINT =
             "uk_publications_external_id";

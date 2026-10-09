@@ -1,6 +1,7 @@
 package br.com.fiscalwatch.fiscalservice.publication.controller;
 
 import br.com.fiscalwatch.fiscalservice.publication.dto.PublicationHistoryResponse;
+import br.com.fiscalwatch.fiscalservice.publication.dto.PublicationCollectionState;
 import br.com.fiscalwatch.fiscalservice.publication.dto.PublicationRequest;
 import br.com.fiscalwatch.fiscalservice.publication.dto.PublicationResponse;
 import br.com.fiscalwatch.fiscalservice.publication.enums.DocumentType;
@@ -15,6 +16,15 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/publications")
 public class PublicationController {
+
+    @GetMapping("/collection-state")
+    public ResponseEntity<PublicationCollectionState>
+            findCollectionState(@RequestParam String externalId) {
+        if (!externalId.matches("[0-9a-f]{64}")) {
+            return ResponseEntity.badRequest().build();
+        }
+        return ResponseEntity.ok(publicationService.findSvrsCollectionState(externalId));
+    }
 
     private final PublicationService publicationService;
 

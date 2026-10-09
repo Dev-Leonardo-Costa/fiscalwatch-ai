@@ -42,7 +42,8 @@ def get_extractor_version_for_source(source: str) -> str | None:
 
 
 def extract_publication_document(
-    publication: Publication
+    publication: Publication,
+    *, timeout: float | None = None
 ) -> PublicationDocument:
     if publication.source == "RECEITA_FEDERAL":
         return _extract_receita_html_document(publication)
@@ -59,10 +60,10 @@ def extract_publication_document(
     if publication.source == "IMPRENSA_NACIONAL_DOU":
         return _extract_dou_html_document(publication)
 
-    return _extract_svrs_document(publication)
+    return _extract_svrs_document(publication, timeout=timeout)
 
 
-def _extract_svrs_document(publication: Publication) -> PublicationDocument:
+def _extract_svrs_document(publication: Publication, *, timeout: float | None = None) -> PublicationDocument:
     if not publication.download_url:
         return PublicationDocument(
             source_url=None,
@@ -74,7 +75,8 @@ def _extract_svrs_document(publication: Publication) -> PublicationDocument:
     try:
         file_path = svrs_collector.download_document(
             publication.download_url,
-            _temporary_filename(publication)
+            _temporary_filename(publication),
+            **({} if timeout is None else {"timeout": timeout})
         )
 
         magic_bytes = _read_magic_bytes(file_path)

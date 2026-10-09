@@ -29,9 +29,11 @@ from app.service.svrs_schema_comparison_orchestration_service import (
 logger = logging.getLogger(__name__)
 
 
-def dispatch_publication(publication) -> dict:
+def dispatch_publication(publication, *, timeout: float | None = None,
+                         analyze_schema: bool = True, recover_only: bool = False) -> dict:
     try:
-        document = extract_publication_document(publication)
+        document = extract_publication_document(publication, **(
+            {} if timeout is None else {"timeout": timeout}))
     except Exception as exception:
         document = PublicationDocument(
             source_url=publication.download_url,
@@ -43,6 +45,13 @@ def dispatch_publication(publication) -> dict:
             extracted_at=datetime.now()
         )
 
+    if recover_only and (document.extraction_status != "EXTRACTED"
+                         or not document.content_text or not document.content_text.strip()
+                         or document.extraction_error is not None):
+        result = _dispatch_result(publication, document)
+        result.update(status="RECOVERY_NOT_READY", published=0)
+        return result
+
     event = PublicationEvent(
         event_type=PUBLICATION_DISCOVERED,
         occurred_at=datetime.now(),
@@ -50,8 +59,9 @@ def dispatch_publication(publication) -> dict:
         document=document
     )
 
-    publish_publication_event(event)
-    _try_dispatch_svrs_schema_impact_analysis(publication, document)
+    publish_publication_event(event, **({} if timeout is None else {"timeout": timeout}))
+    if analyze_schema:
+        _try_dispatch_svrs_schema_impact_analysis(publication, document)
 
     return _dispatch_result(publication, document)
 

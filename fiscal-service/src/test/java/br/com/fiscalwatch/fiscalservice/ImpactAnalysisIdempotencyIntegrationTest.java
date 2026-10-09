@@ -106,6 +106,35 @@ class ImpactAnalysisIdempotencyIntegrationTest {
     }
 
     @Test
+    void estadoDeColetaDeveIncluirNotaTecnicaSemDocumentoEmBancoEmMemoria() {
+        var initial = publicationService.findSvrsCollectionState(request.externalId());
+        assertTrue(initial.exists());
+        assertTrue(initial.validDocument());
+        documents.delete(documents.findByPublicationId(publicationId).orElseThrow());
+        documents.flush();
+        var missing = publicationService.findSvrsCollectionState(request.externalId());
+        assertTrue(missing.exists());
+        assertNull(missing.extractionStatus());
+        assertFalse(missing.validDocument());
+        assertFalse(publicationService.findSvrsCollectionState("0".repeat(64)).exists());
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = ExtractionStatus.class, names = {"FAILED", "PENDING"})
+    void estadoDeColetaDeveRefletirRecuperacaoPersistida(ExtractionStatus status) {
+        var document = documents.findByPublicationId(publicationId).orElseThrow();
+        document.setExtractionStatus(status);
+        documents.saveAndFlush(document);
+        var failed = publicationService.findSvrsCollectionState(request.externalId());
+        assertEquals(status, failed.extractionStatus());
+        assertFalse(failed.validDocument());
+        persistir(ExtractionStatus.EXTRACTED);
+        assertTrue(publicationService.findSvrsCollectionState(request.externalId()).validDocument());
+        assertEquals(1, documents.findAll().stream()
+                .filter(d -> d.getPublication().getId().equals(publicationId)).count());
+    }
+
+    @Test
     void segundaChamadaDeveRetornarMesmoIdSemDuplicarRelacionamentos() {
         var first = service.analyzePublication(publicationId);
         var second = service.analyzePublication(publicationId);

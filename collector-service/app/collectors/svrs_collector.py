@@ -16,10 +16,10 @@ SVRS_URL = "https://dfe-portal.svrs.rs.gov.br/NFe/Documentos"
 SVRS_BASE_URL = "https://dfe-portal.svrs.rs.gov.br"
 
 
-def fetch_svrs_page():
+def fetch_svrs_page(*, timeout: float = 30.0):
     response = httpx.get(
         SVRS_URL,
-        timeout=30.0
+        timeout=timeout
     )
 
     response.raise_for_status()
@@ -124,8 +124,8 @@ def inspect_publication_container(html: str, search_text: str):
     return None
 
 
-def get_publications() -> list[Publication]:
-    html = fetch_svrs_page()
+def get_publications(*, timeout: float | None = None) -> list[Publication]:
+    html = fetch_svrs_page() if timeout is None else fetch_svrs_page(timeout=timeout)
     soup = BeautifulSoup(html, "html.parser")
     articles = soup.select("article.conteudo-lista__item")
     publications = []
@@ -222,7 +222,8 @@ def classify_document_type(title: str) -> str:
 
 def download_document(
     url: str,
-    filename: str
+    filename: str,
+    *, timeout: float = 30.0
 ) -> str:
 
     downloads_dir = Path("downloads")
@@ -232,7 +233,7 @@ def download_document(
 
     response = httpx.get(
         url,
-        timeout=30.0,
+        timeout=timeout,
         follow_redirects=True
     )
 
