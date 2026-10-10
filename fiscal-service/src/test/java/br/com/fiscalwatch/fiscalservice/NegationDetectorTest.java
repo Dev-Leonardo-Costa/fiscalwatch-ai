@@ -25,4 +25,33 @@ class NegationDetectorTest {
 
         assertFalse(detector.isNegated(text, "leiaute"));
     }
+
+    @Test
+    void deveConsiderarAusenciaDeAlteracaoDepoisDoTermo() {
+        assertTrue(detector.isNegated("O leiaute não sofreu alteração.", "leiaute"));
+        assertTrue(detector.isNegated("O schema foi copiado sem alterações.", "schema"));
+        assertTrue(detector.isNegated("O layout permanece inalterado.", "layout"));
+    }
+
+    @Test
+    void deveConsiderarNegacaoDaDeclaracaoInteiraSemLimiteDeOitentaCaracteres() {
+        String text = "Não " + "introduz qualquer modificação nas definições existentes, ".repeat(3)
+                + "altera o leiaute da NF-e.";
+        assertTrue(detector.isNegated(text, "leiaute"));
+    }
+
+    @Test
+    void naoDeveTransferirNegacaoEntreDeclaracoesOuContrastes() {
+        String text = "O leiaute não mudou. Esta NT altera o schema XML.";
+        assertFalse(detector.isNegatedAt(text, text.indexOf("schema")));
+        text = "Não altera o leiaute, mas modifica o schema XML.";
+        assertTrue(detector.isNegated(text, "leiaute"));
+        assertFalse(detector.isNegatedAt(text, text.indexOf("schema")));
+    }
+
+    @Test
+    void naoDeveTratarNegacaoComoParteDeOutraPalavra() {
+        String text = "O schema contém o campo denominado renomear.";
+        assertFalse(detector.isNegated(text, "schema"));
+    }
 }

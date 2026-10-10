@@ -4,17 +4,22 @@ import br.com.fiscalwatch.fiscalservice.fiscalchange.FiscalChange;
 import br.com.fiscalwatch.fiscalservice.fiscalchange.FiscalChangeDetector;
 import br.com.fiscalwatch.fiscalservice.fiscalchange.FiscalChangeType;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.analyzer.EvidenceResult;
+import br.com.fiscalwatch.fiscalservice.impactanalysis.analyzer.ActionItemResult;
+import br.com.fiscalwatch.fiscalservice.impactanalysis.analyzer.TechnicalImpactResult;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.analyzer.ImpactAnalysisResult;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.analyzer.PublicationDocumentAnalysisInput;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.analyzer.PublicationAnalysisInput;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.analyzer.RuleBasedImpactAnalyzer;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.analyzer.rules.FiscalAnalysisContext;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.analyzer.rules.FiscalRuleEngine;
+import br.com.fiscalwatch.fiscalservice.impactanalysis.analyzer.rules.RuleMatch;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.enums.ImpactLevel;
 import br.com.fiscalwatch.fiscalservice.publication.enums.DocumentType;
 import br.com.fiscalwatch.fiscalservice.publication.enums.ExtractionStatus;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -22,6 +27,7 @@ import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -52,8 +58,113 @@ class RuleBasedImpactAnalyzerTest {
                 impact.title().contains("CFOP") || impact.description().contains("CFOP")));
         assertTrue(result.actionItems().stream().noneMatch(action ->
                 action.title().contains("CFOP") || action.description().contains("CFOP")));
-        // A classificação global atual permanece fora do escopo desta correção.
+        assertNotEquals(ImpactLevel.HIGH, result.impactLevel());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "Sumário\n3 Leiaute da Nota Fiscal Eletrônica ................ 8",
+            "Sumário\n3 Alteração do leiaute da NF-e ................ 8",
+            "Referência informativa ao schema XML e ao leiaute da NF-e.",
+            "Referência informativa sobre alteração do leiaute da NF-e.",
+            "Exemplo hipotético de alteração do schema XML.",
+            "Se esta NT altera o leiaute, o ERP precisa de ajustes.",
+            "O leiaute da NF-e não sofreu alteração.",
+            "O schema XML permanece inalterado.",
+            "O layout da NF-e foi copiado do MOC sem alterações.",
+            "Ausência de alterações no leiaute da NF-e.",
+            "Nenhuma alteração no leiaute da NF-e.",
+            "Sem modificações no schema XML.",
+            "O schema XSD foi alterado? Não, permanece inalterado.",
+            "Esta NT não altera o leiaute da NF-e nem os schemas XML.",
+            "Esta NT altera o leiaute? Não, as definições foram copiadas sem alterações."
+    })
+    void naoDeveGerarHighSemMudancaEstruturalAfirmada(String contentText) {
+        assertNotEquals(ImpactLevel.HIGH, analisarTexto(contentText).impactLevel());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "Esta NT altera o leiaute da NF-e.",
+            "O documento oficial modifica o layout da NF-e.",
+            "Alteração do schema XSD da NF-e.",
+            "O schema XSD da NF-e será alterado.",
+            "O leiaute não sofreu alteração. Esta NT altera o schema XSD.",
+            "Esta NT não altera o schema XML. Esta NT altera o schema XML.",
+            "O schema não será alterado, mas esta NT modifica o leiaute da NF-e."
+    })
+    void devePreservarHighParaMudancaEstruturalComEvidence(String contentText) {
+        ImpactAnalysisResult result = analisarTexto(contentText);
         assertEquals(ImpactLevel.HIGH, result.impactLevel());
+        assertTrue(result.technicalImpacts().stream().anyMatch(i -> i.impactLevel() == ImpactLevel.HIGH));
+        assertTrue(result.evidences().stream().anyMatch(e -> e.excerpt().contains("altera")
+                || e.excerpt().contains("modifica") || e.excerpt().contains("Alteração")));
+        for (var evidence : result.evidences()) {
+            assertEquals(contentText.substring(evidence.startPosition(), evidence.endPosition()),
+                    evidence.excerpt());
+        }
+    }
+
+    @Test
+    void naoDeveDependerDeJanelaAnteriorParaNegacao() {
+        String contentText = "Esta NT não " + "introduz qualquer modificação nas definições existentes, ".repeat(3)
+                + "altera o leiaute da NF-e.";
+        assertNotEquals(ImpactLevel.HIGH, analisarTexto(contentText).impactLevel());
+    }
+
+    @Test
+    void naoDeveJuntarMetadadosIndependentesParaAfirmarMudanca() {
+        assertNotEquals(ImpactLevel.HIGH,
+                analyzer.analyze(criarInput("Esta NT altera", "o schema XML da NF-e")).impactLevel());
+    }
+
+    @Test
+    void deveManterNiveisDasRegrasSemPromoverOuRebaixarPeloGlobal() {
+        var high = new TechnicalImpactResult("Mudança estrutural", "Mudança confirmada de schema",
+                "Fiscal", "NF-e", ImpactLevel.HIGH);
+        var medium = new TechnicalImpactResult("Mudança CFOP", "Mudança específica de CFOP",
+                "Fiscal", "NF-e", ImpactLevel.MEDIUM);
+        var lowAction = new ActionItemResult("Conferir CFOP", "Conferência", "Analista fiscal",
+                ImpactLevel.LOW, null);
+        var evidence = new EvidenceResult("NT", "https://example.com/documento.pdf",
+                null, null, "Esta NT altera o schema XML.", null, null);
+        var match = new RuleMatch("regras-de-teste", List.of(high, medium), List.of(lowAction),
+                List.of(evidence), null, null);
+        var customAnalyzer = new RuleBasedImpactAnalyzer(
+                new FiscalRuleEngine(List.of(context -> Optional.of(match))), context -> List.of());
+
+        ImpactAnalysisResult result = customAnalyzer.analyze(criarInput("Comunicado", null));
+        assertEquals(ImpactLevel.HIGH, result.impactLevel());
+        assertEquals(List.of(high, medium), result.technicalImpacts());
+        assertEquals(List.of(lowAction), result.actionItems());
+    }
+
+    @Test
+    void deveManterCfopMediumQuandoHaMudancaEstruturalHighIndependente() {
+        ImpactAnalysisResult result = analisarTexto(
+                "Esta NT altera o leiaute da NF-e.\n\n"
+                        + "Esta Nota Técnica altera a regra de validação I08-140 da NF-e, modelo 55, "
+                        + "para permitir a utilização dos CFOP 1.949 e 2.949.");
+        assertEquals(ImpactLevel.HIGH, result.impactLevel());
+        assertEquals(ImpactLevel.MEDIUM, result.technicalImpacts().stream()
+                .filter(i -> i.title().contains("CFOP")).findFirst().orElseThrow().impactLevel());
+        assertEquals(ImpactLevel.MEDIUM, result.actionItems().stream()
+                .filter(a -> a.title().contains("CFOP")).findFirst().orElseThrow().priority());
+    }
+
+    private ImpactAnalysisResult analisarTexto(String contentText) {
+        return analyzer.analyze(criarInput("Comunicado fiscal", null,
+                criarDocumento(ExtractionStatus.EXTRACTED, "https://example.com/documento.pdf", contentText)));
+    }
+
+    @Test
+    void deveExplicitarLimiteDoFallbackSemAfirmarBaixoImpactoConfirmado() {
+        ImpactAnalysisResult result = analisarTexto("Referência ao leiaute da NF-e sem informação de mudança.");
+        assertNotEquals(ImpactLevel.HIGH, result.impactLevel());
+        assertTrue(result.summary().contains("Classificação conservadora"));
+        assertTrue(result.summary().contains("revisão manual"));
+        assertTrue(result.technicalImpacts().getFirst().description()
+                .contains("não uma confirmação de baixo impacto"));
     }
 
     @Test
@@ -77,11 +188,11 @@ class RuleBasedImpactAnalyzerTest {
 
         assertEquals(1, result.technicalImpacts().size());
         assertEquals(
-                "Revisar impacto tecnico da publicacao",
+                "Revisar alteração de leiaute ou schema",
                 result.technicalImpacts().get(0).title()
         );
         assertEquals(
-                DocumentType.NOTA_TECNICA.name(),
+                "Leiaute / schema",
                 result.technicalImpacts().get(0).affectedComponent()
         );
         assertEquals(
@@ -91,7 +202,7 @@ class RuleBasedImpactAnalyzerTest {
 
         assertEquals(1, result.actionItems().size());
         assertEquals(
-                "Analista fiscal",
+                "Desenvolvedor fiscal",
                 result.actionItems().get(0).targetProfessionalProfile()
         );
         assertEquals(ImpactLevel.HIGH, result.actionItems().get(0).priority());
@@ -105,6 +216,8 @@ class RuleBasedImpactAnalyzerTest {
                 "https://example.com/nota-tecnica.pdf",
                 result.evidences().get(0).sourceUrl()
         );
+        assertNull(result.evidences().getFirst().startPosition());
+        assertNull(result.evidences().getFirst().endPosition());
     }
 
     @Test
@@ -173,9 +286,9 @@ class RuleBasedImpactAnalyzerTest {
     @Test
     void deveGerarEvidenceDocumentalQuandoRegraEstiverNoContentText() {
 
-        String contentText = "A".repeat(120)
-                + "layout"
-                + "B".repeat(120);
+        String contentText = "Cabeçalho informativo.\n\n"
+                + "O documento oficial altera o layout da NF-e."
+                + "\n\nRodapé informativo.";
         PublicationAnalysisInput input = criarInput(
                 "Comunicado fiscal",
                 "Publicacao informativa",
@@ -384,6 +497,9 @@ class RuleBasedImpactAnalyzerTest {
         );
         assertEquals(1, result.evidences().size());
         assertEquals(contentText, result.evidences().getFirst().excerpt());
+        assertEquals(ImpactLevel.MEDIUM, result.impactLevel());
+        assertEquals(ImpactLevel.MEDIUM, result.technicalImpacts().getFirst().impactLevel());
+        assertEquals(ImpactLevel.MEDIUM, result.actionItems().getFirst().priority());
         assertEquals(
                 contentText.substring(
                         result.evidences().getFirst().startPosition(),
@@ -403,7 +519,7 @@ class RuleBasedImpactAnalyzerTest {
                 criarDocumento(
                         extractionStatus,
                         "https://example.com/documento.pdf",
-                        "Texto documental menciona schema e layout."
+                        "O documento altera o schema e o layout."
                 )
         );
 
