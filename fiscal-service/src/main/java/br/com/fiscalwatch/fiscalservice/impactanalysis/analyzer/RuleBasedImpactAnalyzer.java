@@ -70,7 +70,7 @@ public class RuleBasedImpactAnalyzer implements ImpactAnalyzer {
         );
         LocalDateTime productionDeadline = firstProductionDeadline(matches);
         List<RuleMatch> contentMatches = matches.stream()
-                .filter(RuleMatch::hasImpactContent)
+                .filter(match -> !match.technicalImpacts().isEmpty() || !match.actionItems().isEmpty())
                 .toList();
 
         if (contentMatches.isEmpty()) {
@@ -80,7 +80,8 @@ public class RuleBasedImpactAnalyzer implements ImpactAnalyzer {
                     impactLevel,
                     summary,
                     homologationDeadline,
-                    productionDeadline
+                    productionDeadline,
+                    matches.stream().flatMap(match -> match.evidences().stream()).toList()
             );
         }
 
@@ -95,7 +96,7 @@ public class RuleBasedImpactAnalyzer implements ImpactAnalyzer {
                 contentMatches.stream()
                         .flatMap(match -> match.actionItems().stream())
                         .toList(),
-                contentMatches.stream()
+                matches.stream()
                         .flatMap(match -> match.evidences().stream())
                         .toList()
         );
@@ -107,7 +108,8 @@ public class RuleBasedImpactAnalyzer implements ImpactAnalyzer {
             ImpactLevel impactLevel,
             String summary,
             LocalDateTime homologationDeadline,
-            LocalDateTime productionDeadline
+            LocalDateTime productionDeadline,
+            List<EvidenceResult> deadlineEvidences
     ) {
 
         return new ImpactAnalysisResult(
@@ -133,7 +135,9 @@ public class RuleBasedImpactAnalyzer implements ImpactAnalyzer {
                         impactLevel,
                         null
                 )),
-                List.of(resolveFallbackEvidence(publication, context))
+                java.util.stream.Stream.concat(
+                        java.util.stream.Stream.of(resolveFallbackEvidence(publication, context)),
+                        deadlineEvidences.stream()).toList()
         );
     }
 

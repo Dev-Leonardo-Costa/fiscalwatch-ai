@@ -1,0 +1,103 @@
+Sistema Nota Fiscal Eletrônica
+
+Nota Técnica 2021.003
+Validação GTIN
+Substitui a NT 2017.001
+
+Versão 1.21 – maio de 2023
+
+Nota Fiscal Eletrônica
+Nota Técnica 2021.003 v1.21 – Validação de GTIN
+Página 2 / 15
+Sumário
+1 Resumo ................................ ................................ ................................ ................................ ........... 4
+1.1 Alterações introduzidas na Versão 1.10 ..................................................................................................... 4
+1.2 Alterações introduzidas na Versão 1.20 ..................................................................................................... 5
+1.3 Alterações introduzidas na Versão 1.21 ..................................................................................................... 5
+2 Cadastro Centralizado de GTIN ................................ ................................ ................................ ...... 5
+2.1 Cadastro Centralizado de GTIN – CCG ..................................................................................................... 5
+2.2 Manutenção do Cadastro Centralizado de GTIN (CCG) ............................................................................ 6
+2.3 Consulta Pública ao Cadastro Centralizado de GTIN ................................................................................ 7
+3 Leiaute da Nota Fiscal Eletrônica ................................ ................................ ................................ .... 8
+4 Detalhamento das Validações ................................ ................................ ................................ ......... 9
+4.1 Ativação das Regras de Validação ............................................................................................................. 9
+4.2 I. Produtos e Serviços ............................................................................................................................... 10
+4.3 U. Item / Tributo: ISSQN ........................................................................................................................... 11
+4.4 7. Banco de Dados: Cadastro da SEFAZ ................................................................................................. 11
+4.5 9. Banco de Dados: Cadastro Centralizado de GTIN (CCG) ................................................................... 11
+5 Mensagens de Erro ................................ ................................ ................................ ....................... 13
+Anexo I – Grupos de Mercadoria para Validação do GTIN ................................ ................................ . 14
+Anexo II – CFOP para validação do GTIN................................ ................................ .......................... 15
+
+Índice de Tabelas
+
+Tabela 1 – Validações Realizadas no CCG ................................ ................................ ......................... 6
+Tabela 2 – Cronograma de Ativação das Regras ................................ ................................ ................. 9
+Tabela 3 – Mensagens de Erro (Motivos de Não Atendimento da Solicitação) ................................ .. 13
+
+Nota Fiscal Eletrônica
+Nota Técnica 2021.003 v1.21 – Validação de GTIN
+Página 3 / 15
+Controle de Versões
+Versão Publicação Descrição
+Preliminar Julho/2021 Publicação para conhecimento de contribuintes e seus provedores, para comentários
+e manifestações
+1.00 Setembro/2021 Publicação da NT
+1.10 Julho/2022 Publicação da NT
+1.20 Dezembro/2022 Publicação da NT
+1.21 Maio/2023 Publicação da NT
+
+Em 08 de julho de 2021 foi publicada uma versão preliminar desta Nota Técnica, destinada somente
+ao conhecimento por parte das empresas e de seus provedores de solução sobre as alterações nela
+introduzidas por meio desta Nota Técnica. A versão 1.00, publicada em setembro de 2021, aproveita
+os comentários e sugestões recebidos pela Coordenação Técnica do ENCAT com respeito ao texto da
+versão preliminar.
+
+Histórico de Alterações / Cronograma
+Versão Histórico de atualizações Implantação
+Teste
+Implantação
+Produção
+1.00 Implantação da etapa 1 desta NT (verifica GTIN existe no CCG, outros) 04/07/2022 12/09/2022
+Implantação da etapa 2 desta NT (verifica NCM e CEST no CCG) 06/03/2023 12/06/2023
+1.10 Postergação da Validação da existência do GTIN no CCG, conforme o NCM -x- -x-
+Etapa 1 desta NT (verifica GTIN existe no CCG, outros) Até 25/07/2022 Sem alteração
+Etapa 2 desta NT (verifica NCM no CCG) Sem Alteração Sem alteração
+1.20 Verificada a existência do GTIN no CCG para novos grupos de NCM 03/04/2023 01/06/2023
+1.21 Adiada a implantação em produção , por 30 dias, da verificação de existência
+de novos GTIN relacionados a indústria de bebidas e refrigerantes, cimento,
+perfumaria, higiene pessoal e cosméticos, conforme descrito no Anexo I ,
+Grupo II desta NT.
+-x- 03/07/2023
+
+Nota Fiscal Eletrônica
+Nota Técnica 2021.003 v1.21 – Validação de GTIN
+Página 4 / 15
+1 Resumo
+O Ajuste SINIEF 07/05 e o Ajuste SINIEF 19/16 obrigam o preenchimento dos campos cEAN e
+cEANTrib na Nota Fiscal Eletrônica (NF-e) e na Nota Fiscal de Consumidor Eletrônica (NFC-e) quando
+o produto comercializado possuir código de barras com GTIN.
+
+Os Ajustes SINIEF citados também estipulam que os sistemas autorizadores da NF-e e NFC-e deverão
+validar as informações descritas nos campos cEAN e cEANTrib junto ao Cadastro Centralizado de
+GTIN (CCG), devendo as notas serem rejeitadas em caso de não conformidade com as informações
+contidas no CCG.
+
+Estes Ajustes SINIEF podem ser encontrados seguintes endereços:
+https://www.confaz.fazenda.gov.br/legislacao/ajustes/2005/AJ007_05
+https://www.confaz.fazenda.gov.br/legislacao/ajustes/2016/AJ_019_16
+
+Esta matéria já havia sido tratada na Nota Técnica 2017.001 e suas versões. A presente Nota Técnica
+substitui a NT 2017.001, em virtude de as disposições daquela NT já terem sido recepcionadas na
+Versão 7.0 do Manual de Ori entação do Contribuinte – MOC, e seus anexos , publicado pelo Ato
+COTEPE/ICMS 69, de 26 de novembro de 2020.
+
+As regras de validação que estavam documentadas como de implementação futura na NT201 7.001
+serão ativadas em duas etapas, conforme disposto no Capítulo 4.
+
+1.1 Alterações introduzidas na Versão 1.10
+A versão 1.10 da NT basicamente adia a lgumas regras de validação do Serviço de Autorização de
+Nota Fiscal que verificam a existência do GTIN no CCG-Cadastro Centralizado de GTIN para a maior
+parte dos produtos comercializados.
+
+Foram feitas algumas melhoria

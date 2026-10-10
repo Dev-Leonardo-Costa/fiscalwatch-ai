@@ -61,6 +61,19 @@ class RuleBasedImpactAnalyzerTest {
         assertNotEquals(ImpactLevel.HIGH, result.impactLevel());
     }
 
+    @Test
+    void devePreservarEvidenciaDePrazoHistoricoSemEliminarRevisaoTecnica() {
+        var result = analisarTexto("Versão 1.21\nCronograma\nTeste\nProdução\n"
+                + "1.21 Adiada a implantação de GTIN -x- 03/07/2023");
+        assertNull(result.homologationDeadline());
+        assertNull(result.productionDeadline());
+        assertEquals(1, result.technicalImpacts().size());
+        assertEquals(1, result.actionItems().size());
+        assertTrue(result.evidences().stream().anyMatch(evidence ->
+                evidence.documentSection() != null && evidence.documentSection().contains("versão 1.21")));
+        assertTrue(result.summary().contains("revisão manual"));
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {
             "Sumário\n3 Leiaute da Nota Fiscal Eletrônica ................ 8",
