@@ -15,7 +15,9 @@ Copy-Item .env.example .env.local
 npm run dev
 ```
 
-Abra http://127.0.0.1:3000 e informe um ID de publicação. Para o ambiente
+Abra http://127.0.0.1:3000 e pesquise por número da NT, ano, título ou palavra-chave
+(por exemplo, `2021.003`, `2023` ou `GTIN`). A pesquisa fica na URL `/?q=GTIN`.
+Para o ambiente
 isolado existente, http://127.0.0.1:3000/publicacoes/94 consulta a publicação 94.
 A URL Java padrão do exemplo é http://127.0.0.1:8081. Não há fallback silencioso
 para o serviço principal. A variável não possui prefixo NEXT_PUBLIC_ e o
@@ -37,6 +39,7 @@ O build não consulta a API; a rota de detalhes é dinâmica e usa `no-store`.
 - `src/services/http.ts`: timeout de 10 segundos, GET, erros seguros e validação
   das respostas com Zod; não exibe mensagens internas retornadas pelo backend.
 - `src/services/fiscal-service.ts`: somente
+  `GET /api/publications?q={termo}`,
   `GET /api/publications/{id}` e
   `GET /api/impact-analyses/publications/{publicationId}`.
 - `src/types/fiscal.ts`: schemas e tipos baseados nos records PublicationResponse,
@@ -90,7 +93,18 @@ hoje esses metadados não existem no contrato. Para schemas, vincular uma fonte
 documental de cronograma antes de preencher datas. Campos nulos, por si só,
 não distinguem ausência no documento de extração ainda não realizada.
 
-A consulta exige ID porque não há listagem geral paginada na API. Não há
+Pesquisa: `GET /api/publications?q=GTIN` retorna um array de PublicationResponse,
+com até 50 publicações ordenadas por publishedAt e ID decrescentes. O termo
+deve ter de 1 a 200 caracteres e é procurado literalmente, sem distinção de
+maiúsculas/minúsculas, no título, descrição ou ano de publicação. O ano de uma
+NT também pode ser encontrado quando consta no título/descrição. Acentos e
+pontuação devem corresponder ao texto; não há busca no corpo do documento.
+Termos vazios/ausentes/longos retornam 400; ausência de resultados retorna [].
+A interface inclui carregamento, ausência de resultados, erro seguro e acesso
+aos detalhes. Reenvie a pesquisa para tentar novamente após uma falha.
+Não há paginação nesta etapa: refine o termo quando atingir 50 resultados.
+
+Não há
 dashboard, autenticação, pagamentos, cadastro ou atualização de ações. A
 interface não inicia análises nem coleta publicações. A evidência pode não
 ter página, seção ou posição; isso é mostrado sem inventar dados. Recomendações

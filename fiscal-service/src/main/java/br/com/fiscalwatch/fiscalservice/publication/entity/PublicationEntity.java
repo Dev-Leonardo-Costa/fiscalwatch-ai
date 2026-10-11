@@ -1,6 +1,8 @@
 package br.com.fiscalwatch.fiscalservice.publication.entity;
 
 import br.com.fiscalwatch.fiscalservice.publication.enums.DocumentType;
+import br.com.fiscalwatch.fiscalservice.publication.enums.PublicationRecordOrigin;
+import br.com.fiscalwatch.fiscalservice.publication.service.InternalTestPublicationIdentifiers;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -15,6 +17,20 @@ import java.time.LocalDateTime;
 @Setter
 @NoArgsConstructor
 public class PublicationEntity {
+    @Enumerated(EnumType.STRING)
+    @Column(name = "record_origin", nullable = false, length = 30)
+    private PublicationRecordOrigin recordOrigin = PublicationRecordOrigin.PUBLIC;
+
+    @PrePersist
+    @PreUpdate
+    private void classifyRecordOrigin() {
+        if (InternalTestPublicationIdentifiers.matches(source, externalId, downloadUrl)) {
+            recordOrigin = PublicationRecordOrigin.INTERNAL_TEST;
+        } else if (recordOrigin == null) {
+            recordOrigin = PublicationRecordOrigin.PUBLIC;
+        }
+    }
+
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)

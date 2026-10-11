@@ -187,14 +187,14 @@ class ImpactAnalysisServiceTest {
         ImpactAnalysis impactAnalysis = new ImpactAnalysis();
         ImpactAnalysisResponse response = criarResponse(id, 10L);
 
-        when(impactAnalysisRepository.findById(id))
+        when(impactAnalysisRepository.findByIdAndPublicationRecordOrigin(id, br.com.fiscalwatch.fiscalservice.publication.enums.PublicationRecordOrigin.PUBLIC))
                 .thenReturn(Optional.of(impactAnalysis));
         when(impactAnalysisMapper.toResponse(impactAnalysis))
                 .thenReturn(response);
 
         ImpactAnalysisResponse result = impactAnalysisService.findById(id);
 
-        verify(impactAnalysisRepository).findById(id);
+        verify(impactAnalysisRepository).findByIdAndPublicationRecordOrigin(id, br.com.fiscalwatch.fiscalservice.publication.enums.PublicationRecordOrigin.PUBLIC);
         verify(impactAnalysisMapper).toResponse(impactAnalysis);
         assertSame(response, result);
     }
@@ -204,7 +204,7 @@ class ImpactAnalysisServiceTest {
 
         Long id = 1L;
 
-        when(impactAnalysisRepository.findById(id))
+        when(impactAnalysisRepository.findByIdAndPublicationRecordOrigin(id, br.com.fiscalwatch.fiscalservice.publication.enums.PublicationRecordOrigin.PUBLIC))
                 .thenReturn(Optional.empty());
 
         assertThrows(
@@ -224,9 +224,9 @@ class ImpactAnalysisServiceTest {
         ImpactAnalysisResponse firstResponse = criarResponse(1L, publicationId);
         ImpactAnalysisResponse secondResponse = criarResponse(2L, publicationId);
 
-        when(publicationRepository.existsById(publicationId))
+        when(publicationRepository.existsByIdAndRecordOrigin(publicationId, br.com.fiscalwatch.fiscalservice.publication.enums.PublicationRecordOrigin.PUBLIC))
                 .thenReturn(true);
-        when(impactAnalysisRepository.findByPublicationId(publicationId))
+        when(impactAnalysisRepository.findByPublicationIdAndPublicationRecordOrigin(publicationId, br.com.fiscalwatch.fiscalservice.publication.enums.PublicationRecordOrigin.PUBLIC))
                 .thenReturn(List.of(first, second));
         when(impactAnalysisMapper.toResponse(first))
                 .thenReturn(firstResponse);
@@ -236,8 +236,8 @@ class ImpactAnalysisServiceTest {
         List<ImpactAnalysisResponse> result =
                 impactAnalysisService.findByPublicationId(publicationId);
 
-        verify(publicationRepository).existsById(publicationId);
-        verify(impactAnalysisRepository).findByPublicationId(publicationId);
+        verify(publicationRepository).existsByIdAndRecordOrigin(publicationId, br.com.fiscalwatch.fiscalservice.publication.enums.PublicationRecordOrigin.PUBLIC);
+        verify(impactAnalysisRepository).findByPublicationIdAndPublicationRecordOrigin(publicationId, br.com.fiscalwatch.fiscalservice.publication.enums.PublicationRecordOrigin.PUBLIC);
 
         assertEquals(List.of(firstResponse, secondResponse), result);
     }

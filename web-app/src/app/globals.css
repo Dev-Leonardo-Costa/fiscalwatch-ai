@@ -48,6 +48,11 @@ input[aria-invalid="true"] { border-color: #b42318; }
 .button { display: inline-flex; justify-content: center; align-items: center; gap: 20px; border: none; background: var(--accent); color: white; padding: 11px 20px; border-radius: 7px; font-weight: 600; font-size: 13px; white-space: nowrap; width: fit-content; }
 .button:hover { background: #115e59; }
 .form-error { color: #b42318; font-size: 13px; }
+.button:disabled { opacity: .65; cursor: wait; }
+.search-results { margin-top: 24px; border-top: 1px solid var(--line); padding-top: 20px; }
+.search-results ul { list-style: none; padding: 0; margin: 12px 0 0; }
+.search-results li { padding: 16px 0; border-bottom: 1px solid var(--line); }
+.search-results h3 .text-link { font-size: 15px; }
 .home-features { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 30px; margin-bottom: 35px; }
 .home-features article { border-top: 1px solid #cdd7e1; padding-top: 18px; }
 .feature-number { color: #74968f; font-size: 11px; font-weight: 700; }

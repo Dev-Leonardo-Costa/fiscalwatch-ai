@@ -28,11 +28,24 @@ import java.util.List;
 @RequiredArgsConstructor
 @Service
 public class PublicationService {
+    @Transactional(readOnly = true)
+    public List<PublicationResponse> search(String query) {
+        if (query == null || query.isBlank() || query.strip().length() > 200) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                    org.springframework.http.HttpStatus.BAD_REQUEST, "Informe uma pesquisa de 1 a 200 caracteres");
+        }
+        String term = query.strip().toLowerCase(java.util.Locale.ROOT)
+                .replace("!", "!!").replace("%", "!%").replace("_", "!_");
+        return publicationRepository.search("%" + term + "%", org.springframework.data.domain.PageRequest.of(0, 50))
+                .stream().map(publicationMapper::toResponse).toList();
+    }
+
 
     @Transactional(readOnly = true)
     public PublicationCollectionState findSvrsCollectionState(String externalId) {
         var publication = publicationRepository.findByExternalId(externalId);
-        if (publication.isEmpty()) {
+        if (publication.isEmpty() || publication.get().getRecordOrigin()
+                != br.com.fiscalwatch.fiscalservice.publication.enums.PublicationRecordOrigin.PUBLIC) {
             return new PublicationCollectionState(
                     externalId, false, null, false);
         }
@@ -87,7 +100,7 @@ public class PublicationService {
     public PublicationResponse findById(Long id) {
 
         PublicationEntity entity = publicationRepository
-                .findById(id)
+                .findByIdAndRecordOrigin(id, br.com.fiscalwatch.fiscalservice.publication.enums.PublicationRecordOrigin.PUBLIC)
                 .orElseThrow(
                         () -> new PublicationNotFoundException(id)
                 );

@@ -1,6 +1,7 @@
 package br.com.fiscalwatch.fiscalservice.publication.dto;
 
 import br.com.fiscalwatch.fiscalservice.publication.enums.DocumentType;
+import br.com.fiscalwatch.fiscalservice.publication.enums.PublicationRecordOrigin;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
@@ -30,7 +31,12 @@ public record PublicationRequest(
 
         String description,
 
-        String downloadUrl
+        String downloadUrl,
+        PublicationRecordOrigin recordOrigin
 
 ) {
+    public PublicationRequest(String externalId, String source, String title, DocumentType documentType,
+            LocalDateTime publishedAt, LocalDateTime modifiedAt, String description, String downloadUrl) {
+        this(externalId, source, title, documentType, publishedAt, modifiedAt, description, downloadUrl, null);
+    }
 }

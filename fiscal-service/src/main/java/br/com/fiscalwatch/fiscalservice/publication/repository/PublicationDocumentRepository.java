@@ -52,6 +52,7 @@ public interface PublicationDocumentRepository
             join fetch document.publication publication
             where publication.source = :source
               and publication.documentType = :documentType
+              and publication.recordOrigin = br.com.fiscalwatch.fiscalservice.publication.enums.PublicationRecordOrigin.PUBLIC
             order by publication.publishedAt asc, publication.id asc
             """)
     List<PublicationDocumentEntity> findHistoryByPublication(

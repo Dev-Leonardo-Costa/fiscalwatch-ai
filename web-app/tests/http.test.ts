@@ -3,6 +3,24 @@ import { test } from "node:test";
 import { z } from "zod";
 import { ApiError, createHttpClient } from "../src/services/http";
 import { publicationSchema, analysisSchema } from "../src/types/fiscal";
+import { queryPublications } from "../src/services/publication-search";
+
+test("pesquisa codifica o termo e aceita nenhum resultado", async () => {
+  const fetcher: typeof fetch = async (url) => {
+    assert.equal(url, "http://localhost/api/publications?q=NT%202021.003%20%26%20GTIN");
+    return Response.json([]);
+  };
+  assert.deepEqual(await queryPublications(createHttpClient("http://localhost", fetcher), " NT 2021.003 & GTIN "), []);
+});
+
+test("pesquisa valida publicações e mantém erro do serviço", async () => {
+  const publication = { id: 94, externalId: "a".repeat(64), source: "SVRS", title: "NT 2021.003",
+    documentType: null, publishedAt: "2023-05-30T00:00:00", modifiedAt: null,
+    description: null, downloadUrl: null, createdAt: null };
+  assert.deepEqual(await queryPublications(createHttpClient("http://localhost", async () => Response.json([publication])), "GTIN"), [publication]);
+  await assert.rejects(queryPublications(createHttpClient("http://localhost", async () => new Response(null, { status: 500 })), "GTIN"), ApiError);
+  await assert.rejects(queryPublications(createHttpClient("http://localhost", async () => Response.json([{ id: "invalid" }])), "GTIN"), ApiError);
+});
 
 test("consulta somente GET no destino configurado sem cache", async () => {
   const fetcher: typeof fetch = async (url, options) => {

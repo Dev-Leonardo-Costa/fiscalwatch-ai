@@ -99,4 +99,19 @@ class PublicationControllerTest {
                 )
         );
     }
+
+    @Test
+    void devePesquisarPublicacoesSemExigirId() throws Exception {
+        when(publicationService.search("GTIN")).thenReturn(List.of());
+        mockMvc.perform(get("/api/publications").param("q", "GTIN"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$").isArray());
+        verify(publicationService).search("GTIN");
+    }
+
+    @Test
+    void deveRejeitarPesquisaAusenteVaziaOuLonga() throws Exception {
+        mockMvc.perform(get("/api/publications")).andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/publications").param("q", " ")).andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/publications").param("q", "a".repeat(201))).andExpect(status().isBadRequest());
+    }
 }

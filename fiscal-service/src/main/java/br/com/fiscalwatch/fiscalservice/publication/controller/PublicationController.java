@@ -16,6 +16,12 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/publications")
 public class PublicationController {
+    @GetMapping
+    public ResponseEntity<List<PublicationResponse>> search(@RequestParam String q) {
+        if (q.isBlank() || q.strip().length() > 200) return ResponseEntity.badRequest().build();
+        return ResponseEntity.ok(publicationService.search(q));
+    }
+
 
     @GetMapping("/collection-state")
     public ResponseEntity<PublicationCollectionState>

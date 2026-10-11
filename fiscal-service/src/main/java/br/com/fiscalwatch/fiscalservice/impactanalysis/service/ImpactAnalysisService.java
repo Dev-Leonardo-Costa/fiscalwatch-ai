@@ -65,7 +65,7 @@ public class ImpactAnalysisService {
     public ImpactAnalysisResponse findById(Long id) {
 
         ImpactAnalysis impactAnalysis = impactAnalysisRepository
-                .findById(id)
+                .findByIdAndPublicationRecordOrigin(id, br.com.fiscalwatch.fiscalservice.publication.enums.PublicationRecordOrigin.PUBLIC)
                 .orElseThrow(
                         () -> new ImpactAnalysisNotFoundException(id)
                 );
@@ -78,12 +78,12 @@ public class ImpactAnalysisService {
             Long publicationId
     ) {
 
-        if (!publicationRepository.existsById(publicationId)) {
+        if (!publicationRepository.existsByIdAndRecordOrigin(publicationId, br.com.fiscalwatch.fiscalservice.publication.enums.PublicationRecordOrigin.PUBLIC)) {
             throw new PublicationNotFoundException(publicationId);
         }
 
         return impactAnalysisRepository
-                .findByPublicationId(publicationId)
+                .findByPublicationIdAndPublicationRecordOrigin(publicationId, br.com.fiscalwatch.fiscalservice.publication.enums.PublicationRecordOrigin.PUBLIC)
                 .stream()
                 .map(impactAnalysisMapper::toResponse)
                 .toList();

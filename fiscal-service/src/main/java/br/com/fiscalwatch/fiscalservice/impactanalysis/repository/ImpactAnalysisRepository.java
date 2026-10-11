@@ -6,9 +6,12 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;
 import java.util.Optional;
+import br.com.fiscalwatch.fiscalservice.publication.enums.PublicationRecordOrigin;
 
 public interface ImpactAnalysisRepository
         extends JpaRepository<ImpactAnalysis, Long> {
+    Optional<ImpactAnalysis> findByIdAndPublicationRecordOrigin(Long id, PublicationRecordOrigin recordOrigin);
+    List<ImpactAnalysis> findByPublicationIdAndPublicationRecordOrigin(Long publicationId, PublicationRecordOrigin recordOrigin);
 
     List<ImpactAnalysis> findByPublicationId(Long publicationId);
 
