@@ -1,20 +1,52 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { analysisKind, formatLocalDateTime, safeExternalUrl, isPublicationId } from "../src/lib/formatters";
-import { deadlineDetails } from "../src/lib/deadlines";
+import { deadlineDetails, hasDeadlineEvidence } from "../src/lib/deadlines";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { DeadlineSection } from "../src/components/deadline-section";
 
-test("prazos válidos são classificados por dia em Fortaleza", () => {
+test("somente prazos confirmados são classificados por dia em Fortaleza", () => {
   const now = new Date("2026-10-10T02:30:00Z"); // Ainda 09/10 em Fortaleza.
-  assert.equal(deadlineDetails("2026-10-08T23:59:59", now).label, "Vencido");
-  assert.equal(deadlineDetails("2026-10-10T00:00:00", now).label, "Futuro");
-  assert.equal(deadlineDetails("2026-10-09T00:00:00", now).label, "Hoje");
-  assert.equal(deadlineDetails("2026-10-09T23:59:59.123456789", now).label, "Hoje");
+  assert.equal(deadlineDetails("2026-10-08T23:59:59", now, "confirmed").label, "Vencido");
+  assert.equal(deadlineDetails("2026-10-10T00:00:00", now, "confirmed").label, "Futuro");
+  assert.equal(deadlineDetails("2026-10-09T00:00:00", now, "confirmed").label, "Hoje");
+  assert.equal(deadlineDetails("2026-10-09T23:59:59.123456789", now, "confirmed").label, "Hoje");
 });
 
 test("prazos ausentes ou inválidos não recebem situação temporal", () => {
   for (const value of [null, "", "not-a-date", "2026-02-30T00:00:00", "2026-13-01T00:00:00", "2026-10-09", "2026-10-09T00:00:00Z"])
-    assert.deepEqual(deadlineDetails(value), { date: null, label: "Prazo não identificado", status: "unknown" });
-  assert.equal(deadlineDetails("2024-02-29T00:00:00", new Date("2024-02-28T12:00:00Z")).label, "Futuro");
+    assert.deepEqual(deadlineDetails(value), { date: null, label: value ? "Prazo não confirmado" : "Não informado", status: "unknown" });
+  assert.equal(deadlineDetails("2024-02-29T00:00:00", new Date("2024-02-28T12:00:00Z"), "confirmed").label, "Futuro");
+});
+
+test("datas legadas da publicação 90 não são promovidas a prazos vencidos", () => {
+  const now = new Date("2026-10-11T12:00:00Z");
+  for (const value of ["2026-09-17T00:00:00", "2027-01-01T00:00:00"])
+    assert.deepEqual(deadlineDetails(value, now), { date: null, label: "Prazo não confirmado", status: "unknown" });
+  assert.equal(deadlineDetails(null, now, "unconfirmed", true).label, "Prazo não confirmado");
+  assert.equal(deadlineDetails(null, now).label, "Não informado");
+});
+
+test("evidência histórica de produção não confirma prazo nem informa homologação", () => {
+  const evidence = [{ documentSection: "Cronograma; versão 1.21; produção; histórico, vigência não confirmada" }];
+  assert.equal(hasDeadlineEvidence(evidence, "produção"), true);
+  assert.equal(hasDeadlineEvidence(evidence, "homologação"), false);
+  assert.equal(hasDeadlineEvidence([{ documentSection: null }], "produção"), false);
+  assert.equal(hasDeadlineEvidence([{ documentSection: "Revisar produção; CFOP" }], "produção"), false);
+});
+
+test("seção renderizada preserva ambientes sem exibir datas legadas como vencidas", () => {
+  const html = renderToStaticMarkup(createElement(DeadlineSection, {
+    homologation: "2026-09-17T00:00:00", production: "2026-09-17T00:00:00",
+    now: new Date("2026-10-11T12:00:00Z"),
+  }));
+  assert.match(html, /Prazo de homologação/);
+  assert.match(html, /Prazo de produção/);
+  assert.equal((html.match(/Prazo não confirmado/g) ?? []).length, 2);
+  assert.doesNotMatch(html, /Vencido|17\/09\/2026|<time/);
+  const missing = renderToStaticMarkup(createElement(DeadlineSection));
+  assert.equal((missing.match(/Não informado/g) ?? []).length, 2);
 });
 
 test("mantém LocalDateTime inclusive microssegundos sem conversão de fuso", () => {

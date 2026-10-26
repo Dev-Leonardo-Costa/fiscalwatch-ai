@@ -2,12 +2,15 @@ import type { ImpactAnalysis } from "@/types/fiscal";
 import { analysisKind, formatLocalDateTime } from "@/lib/formatters";
 import { Badge, ExternalLink } from "./ui";
 import { DeadlineSection } from "./deadline-section";
+import { hasDeadlineEvidence } from "@/lib/deadlines";
 
 export function AnalysisCard({ analysis: a }: { analysis: ImpactAnalysis }) {
   const impacts = a.technicalImpacts ?? [], actions = a.actionItems ?? [], evidences = a.evidences ?? [];
   return <article className="panel analysis-card">
     <header className="analysis-heading"><div><span className="eyebrow">ANÁLISE #{a.id} · {analysisKind(a.analysisVersion)}</span><h3>Impacto e próximos passos</h3><p className="muted text-sm">{a.analysisVersion ?? "Versão não informada"} · {formatLocalDateTime(a.analyzedAt)}</p></div><Badge value={a.status} /></header>
-    <DeadlineSection homologation={a.homologationDeadline} production={a.productionDeadline} />
+    <DeadlineSection homologation={a.homologationDeadline} production={a.productionDeadline}
+      homologationEvidence={hasDeadlineEvidence(evidences, "homologação")}
+      productionEvidence={hasDeadlineEvidence(evidences, "produção")} />
     <section className="analysis-section technical-level"><h4>Nível de impacto técnico</h4><Badge value={a.impactLevel} /><p className="muted text-sm">Classificação da mudança técnica e do esforço de adequação.</p></section>
     <p className="analysis-summary">{a.summary ?? "Resumo não informado."}</p>
     <section className="analysis-section"><h4>Impactos técnicos <span className="count">{impacts.length}</span></h4>{impacts.length ? impacts.map(i => <div className="impact-row" key={i.id}><div><h5>{i.title ?? "Impacto técnico"}</h5><p>{i.description ?? "Descrição não informada."}</p><span className="muted text-sm">{i.affectedArea ?? "Área não informada"} · {i.affectedComponent ?? "Componente não informado"}</span></div><Badge value={i.impactLevel} /></div>) : <p className="muted">Nenhum impacto técnico registrado.</p>}</section>

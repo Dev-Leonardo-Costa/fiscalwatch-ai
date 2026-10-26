@@ -9,7 +9,7 @@
     "start": "next start --hostname 127.0.0.1",
     "lint": "eslint .",
     "typecheck": "next typegen && tsc --noEmit",
-    "test": "tsx --test tests/http.test.ts tests/formatters.test.ts"
+    "test": "tsx --test tests/http.test.ts tests/formatters.test.ts tests/publication-page.test.ts"
   },
   "dependencies": {
     "next": "16.4.0",

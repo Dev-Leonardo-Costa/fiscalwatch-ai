@@ -18,6 +18,28 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class EnvironmentDeadlineRuleTest {
 
+    @Test
+    void naoDeveTratarExemploOuSimulacaoComoImplantacao() {
+        for (String text : List.of("Exemplo: implantação em produção em 15/11/2026.",
+                "Simulação de implantação em homologação em 01/10/2026.")) {
+            assertTrue(rule.evaluate(contexto(text)).isEmpty(), text);
+        }
+    }
+
+    @Test
+    void cronogramaDaPublicacao90HistoricoNaoConfirmaVigencia() {
+        var historicalRule = new EnvironmentDeadlineRule(java.time.Clock.fixed(
+                java.time.Instant.parse("2026-10-11T12:00:00Z"), java.time.ZoneOffset.UTC));
+        var result = historicalRule.evaluate(contexto("Nota Técnica 2026.009 v.1.00",
+                "Cronograma\nTeste\nProdução\n1.00 Alteração I08-140 Até 17/09/2026 Até 17/09/2026")).orElseThrow();
+        assertNull(result.homologationDeadline());
+        assertNull(result.productionDeadline());
+        assertEquals(2, result.evidences().size());
+        assertTrue(result.evidences().stream().allMatch(e -> e.documentSection().contains("vigência não confirmada")));
+        assertTrue(result.evidences().stream().anyMatch(e -> e.documentSection().contains("homologação")));
+        assertTrue(result.evidences().stream().anyMatch(e -> e.documentSection().contains("produção")));
+    }
+
     private final EnvironmentDeadlineRule rule = new EnvironmentDeadlineRule(
             java.time.Clock.fixed(java.time.Instant.parse("2026-01-01T12:00:00Z"), java.time.ZoneOffset.UTC));
 

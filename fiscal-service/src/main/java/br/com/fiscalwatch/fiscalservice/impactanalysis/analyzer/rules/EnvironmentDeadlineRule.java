@@ -50,7 +50,7 @@ public class EnvironmentDeadlineRule implements FiscalRule {
             var clause = negation.clauseAt(text, matcher.start());
             String clauseText = text.substring(clause.start(), clause.end());
             if (negation.isNegatedAt(text, matcher.start())
-                    || Pattern.compile("(?iu)publica[çc][ãa]o|revis[ãa]o|cancelad[oa]|hipot[ée]tic[oa]|\\bse\\b").matcher(clauseText).find()) continue;
+                    || Pattern.compile("(?iu)publica[çc][ãa]o|revis[ãa]o|cancelad[oa]|hipot[ée]tic[oa]|exemplo|simula[çc][ãa]o|\\bse\\b").matcher(clauseText).find()) continue;
             LocalDate date = parse(matcher.group(2));
             if (date != null) candidates.add(new Candidate(matcher.group(1).toLowerCase(java.util.Locale.ROOT).startsWith("produ"), date,
                     clause.start(), clause.end(), "Prazo documental"));
