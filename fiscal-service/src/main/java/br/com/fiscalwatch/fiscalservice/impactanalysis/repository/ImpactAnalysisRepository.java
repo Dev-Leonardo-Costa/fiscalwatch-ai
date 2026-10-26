@@ -10,6 +10,7 @@ import br.com.fiscalwatch.fiscalservice.publication.enums.PublicationRecordOrigi
 
 public interface ImpactAnalysisRepository
         extends JpaRepository<ImpactAnalysis, Long> {
+    Optional<ImpactAnalysis> findByDocumentSnapshotIdAndAnalysisVersion(Long snapshotId, String analysisVersion);
     Optional<ImpactAnalysis> findByIdAndPublicationRecordOrigin(Long id, PublicationRecordOrigin recordOrigin);
     List<ImpactAnalysis> findByPublicationIdAndPublicationRecordOrigin(Long publicationId, PublicationRecordOrigin recordOrigin);
 

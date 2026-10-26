@@ -9,6 +9,8 @@ import java.util.Optional;
 public interface PublicationDocumentSnapshotRepository
         extends Repository<PublicationDocumentSnapshotEntity, Long>, PublicationDocumentSnapshotAppend {
     Optional<PublicationDocumentSnapshotEntity> findById(Long id);
+    Optional<PublicationDocumentSnapshotEntity> findFirstByPublicationIdOrderByIdDesc(Long publicationId);
+    Optional<PublicationDocumentSnapshotEntity> findByIdAndPublicationId(Long id, Long publicationId);
     Optional<PublicationDocumentSnapshotEntity> findByPublicationIdAndSnapshotHash(Long publicationId, String snapshotHash);
     List<PublicationDocumentSnapshotEntity> findByPublicationIdOrderByIdAsc(Long publicationId);
 }

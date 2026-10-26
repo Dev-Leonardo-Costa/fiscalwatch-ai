@@ -36,6 +36,13 @@ public interface PublicationDocumentRepository
                   where analysis.publication.id = publication.id
                     and analysis.analysisVersion = :version
                     and analysis.status = :completed
+                    and (analysis.documentSnapshot.id = (
+                        select max(snapshot.id) from PublicationDocumentSnapshotEntity snapshot
+                        where snapshot.publication.id = publication.id
+                    ) or (analysis.documentSnapshot is null and not exists (
+                        select snapshot.id from PublicationDocumentSnapshotEntity snapshot
+                        where snapshot.publication.id = publication.id
+                    )))
               )
             order by publication.id asc
             """)

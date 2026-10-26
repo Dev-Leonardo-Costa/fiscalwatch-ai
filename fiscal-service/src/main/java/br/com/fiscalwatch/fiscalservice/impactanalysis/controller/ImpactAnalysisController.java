@@ -48,6 +48,13 @@ public class ImpactAnalysisController {
                 .body(response);
     }
 
+    @PostMapping("/publications/{publicationId}/snapshots/{snapshotId}/analyze")
+    public ResponseEntity<ImpactAnalysisResponse> analyzeSnapshot(@PathVariable Long publicationId,
+            @PathVariable Long snapshotId) {
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(impactAnalysisService.analyzeSnapshot(publicationId, snapshotId));
+    }
+
     @GetMapping("/{id}")
     public ResponseEntity<ImpactAnalysisResponse> findById(
             @PathVariable Long id

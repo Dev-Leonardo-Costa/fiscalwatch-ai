@@ -28,6 +28,12 @@ import br.com.fiscalwatch.fiscalservice.impactanalysis.mapper.ImpactAnalysisMapp
 import br.com.fiscalwatch.fiscalservice.impactanalysis.repository.ImpactAnalysisRepository;
 import br.com.fiscalwatch.fiscalservice.publication.entity.PublicationDocumentEntity;
 import br.com.fiscalwatch.fiscalservice.publication.entity.PublicationEntity;
+import br.com.fiscalwatch.fiscalservice.publication.entity.PublicationDocumentSnapshotEntity;
+import br.com.fiscalwatch.fiscalservice.publication.dto.PublicationRequest;
+import br.com.fiscalwatch.fiscalservice.publication.enums.ExtractionStatus;
+import br.com.fiscalwatch.fiscalservice.publication.repository.PublicationDocumentSnapshotRepository;
+import br.com.fiscalwatch.fiscalservice.publication.repository.PublicationSnapshotReceiptRepository;
+import br.com.fiscalwatch.fiscalservice.publication.service.PublicationSnapshotService;
 import br.com.fiscalwatch.fiscalservice.publication.exception.PublicationNotFoundException;
 import br.com.fiscalwatch.fiscalservice.publication.repository.PublicationDocumentRepository;
 import br.com.fiscalwatch.fiscalservice.publication.repository.PublicationRepository;
@@ -35,6 +41,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.annotation.Isolation;
+import org.springframework.web.server.ResponseStatusException;
+import org.springframework.http.HttpStatus;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -60,6 +68,9 @@ public class ImpactAnalysisService {
     private final ImpactAnalysisMapper impactAnalysisMapper;
     private final ImpactAnalyzer impactAnalyzer;
     private final SchemaChangeImpactAnalyzer schemaChangeImpactAnalyzer;
+    private final PublicationDocumentSnapshotRepository snapshots;
+    private final PublicationSnapshotReceiptRepository receipts;
+    private final PublicationSnapshotService snapshotService;
 
     @Transactional(readOnly = true)
     public ImpactAnalysisResponse findById(Long id) {
@@ -139,6 +150,11 @@ public class ImpactAnalysisService {
                         () -> new PublicationNotFoundException(publicationId)
                 );
 
+        var latest = snapshots.findFirstByPublicationIdOrderByIdDesc(publicationId);
+        if (latest.isPresent()) return analyzeSnapshotLocked(publication, latest.get());
+
+        // Existing analyses remain unbound: the current legacy document is not
+        // proof of which bytes were analyzed in the past.
         var existing = impactAnalysisRepository
                 .findFirstByPublicationIdAndAnalysisVersionAndStatusOrderByIdAsc(
                         publicationId, AUTOMATIC_ANALYSIS_VERSION, AnalysisStatus.COMPLETED);
@@ -150,22 +166,52 @@ public class ImpactAnalysisService {
                 .findByPublicationId(publicationId)
                 .orElseThrow(InvalidPublicationDocumentException::new);
         PublicationDocumentValidator.validate(persistedDocument);
-        PublicationDocumentAnalysisInput document =
-                toPublicationDocumentAnalysisInput(persistedDocument);
+        var request = new PublicationRequest(
+                publication.getExternalId(), publication.getSource(), publication.getTitle(), publication.getDocumentType(),
+                publication.getPublishedAt(), publication.getModifiedAt(), publication.getDescription(), publication.getDownloadUrl());
+        return analyzeSnapshotLocked(publication, snapshotService.capture(publication, request, persistedDocument));
+    }
 
-        PublicationAnalysisInput input = toPublicationAnalysisInput(
-                publication,
-                document
-        );
-        ImpactAnalysisResult result = impactAnalyzer.analyze(input);
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public ImpactAnalysisResponse analyzeSnapshot(Long publicationId, Long snapshotId) {
+        var publication = publicationRepository.findByIdForUpdate(publicationId)
+                .orElseThrow(() -> new PublicationNotFoundException(publicationId));
+        var snapshot = snapshots.findByIdAndPublicationId(snapshotId, publicationId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND, "Snapshot não encontrado nesta publicação"));
+        return analyzeSnapshotLocked(publication, snapshot);
+    }
 
-        ImpactAnalysis impactAnalysis = toImpactAnalysis(
-                publication,
-                result,
-                AUTOMATIC_ANALYSIS_VERSION
-        );
-
-        return saveAndMap(impactAnalysis);
+    private ImpactAnalysisResponse analyzeSnapshotLocked(PublicationEntity publication,
+            PublicationDocumentSnapshotEntity snapshot) {
+        var existing = impactAnalysisRepository.findByDocumentSnapshotIdAndAnalysisVersion(snapshot.getId(), AUTOMATIC_ANALYSIS_VERSION);
+        if (existing.isPresent()) return impactAnalysisMapper.toResponse(existing.get());
+        var document = new PublicationDocumentAnalysisInput(snapshot.getSourceUrl(), snapshot.getContentText(),
+                snapshot.getTextHash(), snapshot.getContentLength(),
+                ExtractionStatus.EXTRACTED,
+                null, snapshot.getExtractorVersion(), snapshot.getExtractedAt());
+        var receipt = receipts.findById(snapshot.getId()).orElse(null);
+        PublicationAnalysisInput input;
+        if (receipt == null) {
+            // V6 snapshots may predate receipts. Do not borrow a possibly newer title/version.
+            String title = snapshot.getDeclaredVersion() == null ? "Documento capturado"
+                    : "Documento capturado v" + snapshot.getDeclaredVersion();
+            input = new PublicationAnalysisInput(publication.getId(), publication.getExternalId(), publication.getSource(),
+                    title, publication.getDocumentType(), publication.getPublishedAt(), null, null, snapshot.getSourceUrl(), document);
+        } else {
+            String title = receipt.getTitle();
+            if (receipt.getRevision() != null) {
+                var revision = receipt.getRevision();
+                var note = revision.getTechnicalNote();
+                title = "Nota Técnica %d.%03d v%s".formatted(note.getYear(), note.getNumber(), revision.getDeclaredVersion());
+            }
+            input = new PublicationAnalysisInput(publication.getId(), publication.getExternalId(), receipt.getSource(),
+                    title, receipt.getDocumentType(), receipt.getPublishedAt(), receipt.getModifiedAt(), receipt.getDescription(),
+                    receipt.getDownloadUrl(), document);
+        }
+        var analysis = toImpactAnalysis(publication, impactAnalyzer.analyze(input), AUTOMATIC_ANALYSIS_VERSION);
+        analysis.setDocumentSnapshot(snapshot);
+        return saveAndMap(analysis);
     }
 
     @Transactional

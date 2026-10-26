@@ -15,6 +15,7 @@ import org.mapstruct.Mapping;
 public interface ImpactAnalysisMapper {
 
     @Mapping(target = "publicationId", source = "publication.id")
+    @Mapping(target = "documentSnapshotId", source = "documentSnapshot.id")
     ImpactAnalysisResponse toResponse(ImpactAnalysis impactAnalysis);
 
     TechnicalImpactResponse toResponse(TechnicalImpact technicalImpact);

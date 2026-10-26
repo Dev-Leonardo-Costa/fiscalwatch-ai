@@ -94,6 +94,7 @@ class ImpactAnalysisIdempotencyIntegrationTest {
                 analyses.flush();
                 documents.findByPublicationId(extraId).ifPresent(documents::delete);
                 documents.flush();
+                deleteSnapshotFixtures(extraId);
                 publications.deleteById(extraId);
                 publications.flush();
             }
@@ -101,8 +102,15 @@ class ImpactAnalysisIdempotencyIntegrationTest {
             analyses.flush();
             documents.findByPublicationId(publicationId).ifPresent(documents::delete);
             documents.flush();
+            deleteSnapshotFixtures(publicationId);
             publications.deleteById(publicationId);
         });
+    }
+
+    private void deleteSnapshotFixtures(Long id) {
+        // H2 fixtures only; production snapshots remain protected by V6/V8 triggers.
+        jdbc.update("delete from publication_snapshot_receipts where snapshot_id in (select id from publication_document_snapshots where publication_id = ?)", id);
+        jdbc.update("delete from publication_document_snapshots where publication_id = ?", id);
     }
 
     @Test
@@ -223,7 +231,7 @@ class ImpactAnalysisIdempotencyIntegrationTest {
 
     @ParameterizedTest
     @EnumSource(value = ExtractionStatus.class, names = {"FAILED", "PENDING"})
-    void recuperacaoDoDocumentoDevePermitirAnalisePosterior(ExtractionStatus status) {
+    void snapshotValidoPermaneceAnalisavelMesmoSeRegistroLegadoFalhar(ExtractionStatus status) {
         new TransactionTemplate(transactionManager).executeWithoutResult(tx -> {
             var document = documents.findByPublicationId(publicationId).orElseThrow();
             document.setExtractionStatus(status);
@@ -233,10 +241,8 @@ class ImpactAnalysisIdempotencyIntegrationTest {
             document.setExtractionError(status == ExtractionStatus.FAILED ? "Falha de teste" : null);
         });
         Long documentId = documents.findByPublicationId(publicationId).orElseThrow().getId();
-        assertThrows(InvalidPublicationDocumentException.class,
-                () -> service.analyzePublication(publicationId));
-        assertTrue(analyses.findByPublicationId(publicationId).isEmpty());
-        verify(analyzer, never()).analyze(any());
+        var fromSnapshot = service.analyzePublication(publicationId);
+        assertNotNull(fromSnapshot.documentSnapshotId());
         persistir(ExtractionStatus.EXTRACTED);
         assertEquals(documentId, documents.findByPublicationId(publicationId).orElseThrow().getId());
         assertEquals(AnalysisStatus.COMPLETED, service.analyzePublication(publicationId).status());
@@ -433,7 +439,7 @@ class ImpactAnalysisIdempotencyIntegrationTest {
         assertEquals(new ImpactAnalysisResponse(first.id(), first.publicationId(), first.summary(),
                 first.impactLevel(), first.status(), first.analysisVersion(), first.homologationDeadline(),
                 first.productionDeadline(), second.analyzedAt(), first.technicalImpacts(), first.actionItems(),
-                first.evidences(), first.createdAt(), first.updatedAt()), second);
+                first.evidences(), first.createdAt(), first.updatedAt(), first.documentSnapshotId()), second);
     }
 
     private void assertRelacionamentosUnicos() {

@@ -3,6 +3,7 @@ package br.com.fiscalwatch.fiscalservice.impactanalysis.entity;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.enums.AnalysisStatus;
 import br.com.fiscalwatch.fiscalservice.impactanalysis.enums.ImpactLevel;
 import br.com.fiscalwatch.fiscalservice.publication.entity.PublicationEntity;
+import br.com.fiscalwatch.fiscalservice.publication.entity.PublicationDocumentSnapshotEntity;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -15,7 +16,8 @@ import java.util.ArrayList;
 import java.util.List;
 
 @Entity
-@Table(name = "impact_analyses")
+@Table(name = "impact_analyses", uniqueConstraints = @UniqueConstraint(name = "uk_impact_analysis_snapshot_version",
+        columnNames = {"document_snapshot_id", "analysis_version"}))
 @Getter
 @Setter
 @NoArgsConstructor
@@ -28,6 +30,10 @@ public class ImpactAnalysis {
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "publication_id", nullable = false)
     private PublicationEntity publication;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "document_snapshot_id", updatable = false)
+    private PublicationDocumentSnapshotEntity documentSnapshot;
 
     @Column(name = "summary", columnDefinition = "TEXT")
     private String summary;

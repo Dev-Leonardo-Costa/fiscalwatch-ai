@@ -23,7 +23,7 @@ class PublicationSearchTest {
     @Autowired br.com.fiscalwatch.fiscalservice.impactanalysis.repository.ImpactAnalysisRepository analyses;
 
     private PublicationService service() {
-        return new PublicationService(repository, documents, org.mapstruct.factory.Mappers.getMapper(PublicationMapper.class));
+        return new PublicationService(repository, documents, org.mapstruct.factory.Mappers.getMapper(PublicationMapper.class), null, null);
     }
 
     @Test
@@ -132,7 +132,7 @@ class PublicationSearchTest {
                 analyses, repository, documents, org.mapstruct.factory.Mappers.getMapper(
                     br.com.fiscalwatch.fiscalservice.impactanalysis.mapper.ImpactAnalysisMapper.class),
                 org.mockito.Mockito.mock(br.com.fiscalwatch.fiscalservice.impactanalysis.analyzer.ImpactAnalyzer.class),
-                org.mockito.Mockito.mock(br.com.fiscalwatch.fiscalservice.impactanalysis.analyzer.SchemaChangeImpactAnalyzer.class));
+                org.mockito.Mockito.mock(br.com.fiscalwatch.fiscalservice.impactanalysis.analyzer.SchemaChangeImpactAnalyzer.class), null, null, null);
         assertThrows(br.com.fiscalwatch.fiscalservice.impactanalysis.exception.ImpactAnalysisNotFoundException.class,
                 () -> service.findById(hidden.getId()));
         assertThrows(br.com.fiscalwatch.fiscalservice.publication.exception.PublicationNotFoundException.class,

@@ -30,7 +30,7 @@ class PublicationCollectionStateTest {
     void preparar() {
         publications = mock(PublicationRepository.class);
         documents = mock(PublicationDocumentRepository.class);
-        service = new PublicationService(publications, documents, mock(PublicationMapper.class));
+        service = new PublicationService(publications, documents, mock(PublicationMapper.class), null, null);
     }
 
     private void existente() {

@@ -12,7 +12,7 @@ import org.hibernate.annotations.CreationTimestamp;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "publications")
+@Table(name = "publications", uniqueConstraints = @UniqueConstraint(name = "uk_publications_external_id", columnNames = "external_id"))
 @Getter
 @Setter
 @NoArgsConstructor
@@ -36,7 +36,7 @@ public class PublicationEntity {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(name = "external_id", nullable = false, unique = true, length = 64)
+    @Column(name = "external_id", nullable = false, length = 64)
     private String externalId;
 
     @Column(name = "source", nullable = false, length = 50)

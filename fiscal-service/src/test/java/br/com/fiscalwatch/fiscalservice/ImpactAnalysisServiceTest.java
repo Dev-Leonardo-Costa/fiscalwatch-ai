@@ -81,6 +81,9 @@ class ImpactAnalysisServiceTest {
     private SchemaChangeImpactAnalyzer schemaChangeImpactAnalyzer;
 
     private ImpactAnalysisService impactAnalysisService;
+    @Mock private br.com.fiscalwatch.fiscalservice.publication.repository.PublicationDocumentSnapshotRepository snapshots;
+    @Mock private br.com.fiscalwatch.fiscalservice.publication.repository.PublicationSnapshotReceiptRepository receipts;
+    @Mock private br.com.fiscalwatch.fiscalservice.publication.service.PublicationSnapshotService snapshotService;
 
     @BeforeEach
     void configurar() {
@@ -90,8 +93,21 @@ class ImpactAnalysisServiceTest {
                 publicationDocumentRepository,
                 impactAnalysisMapper,
                 impactAnalyzer,
-                schemaChangeImpactAnalyzer
+                schemaChangeImpactAnalyzer, snapshots, receipts, snapshotService
         );
+        org.mockito.Mockito.lenient().when(snapshotService.capture(any(), any(), any())).thenAnswer(invocation -> {
+            var publication = (PublicationEntity) invocation.getArgument(0);
+            var request = (br.com.fiscalwatch.fiscalservice.publication.dto.PublicationRequest) invocation.getArgument(1);
+            var document = (PublicationDocumentEntity) invocation.getArgument(2);
+            var snapshot = br.com.fiscalwatch.fiscalservice.publication.entity.PublicationDocumentSnapshotEntity.create(
+                    publication, document.getContentText(), document.getSourceUrl(), null,
+                    document.getExtractorVersion(), document.getExtractedAt(), null, null);
+            org.springframework.test.util.ReflectionTestUtils.setField(snapshot, "id", 999L);
+            org.mockito.Mockito.lenient().when(receipts.findById(999L)).thenReturn(Optional.of(
+                    new br.com.fiscalwatch.fiscalservice.publication.entity.PublicationSnapshotReceiptEntity(
+                            999L, null, request, LocalDateTime.now())));
+            return snapshot;
+        });
     }
 
     @Test

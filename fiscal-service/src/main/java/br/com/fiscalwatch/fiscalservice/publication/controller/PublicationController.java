@@ -4,6 +4,7 @@ import br.com.fiscalwatch.fiscalservice.publication.dto.PublicationHistoryRespon
 import br.com.fiscalwatch.fiscalservice.publication.dto.PublicationCollectionState;
 import br.com.fiscalwatch.fiscalservice.publication.dto.PublicationRequest;
 import br.com.fiscalwatch.fiscalservice.publication.dto.PublicationResponse;
+import br.com.fiscalwatch.fiscalservice.publication.dto.PublicationSnapshotResponse;
 import br.com.fiscalwatch.fiscalservice.publication.enums.DocumentType;
 import br.com.fiscalwatch.fiscalservice.publication.service.PublicationService;
 import jakarta.validation.Valid;
@@ -71,5 +72,11 @@ public class PublicationController {
                 publicationService.findHistory(source, documentType);
 
         return ResponseEntity.ok(response);
+    }
+
+    @GetMapping("/{id}/snapshots")
+    public ResponseEntity<List<PublicationSnapshotResponse>>
+            findSnapshots(@PathVariable Long id) {
+        return ResponseEntity.ok(publicationService.findSnapshots(id));
     }
 }
